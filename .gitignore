@@ -15,6 +15,7 @@
 
 # next.js
 /.next/
+/.next*/
 /out/
 
 # production
@@ -32,6 +33,12 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!/.env.example
+
+# Firebase service-account keys and local credential exports
+*service-account*.json
+*-firebase-adminsdk-*.json
+firebase-admin*.json
 
 # vercel
 .vercel

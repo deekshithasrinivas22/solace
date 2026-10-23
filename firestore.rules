@@ -1,0 +1,425 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedInAs(userId) {
+      return request.auth != null && request.auth.uid == userId;
+    }
+
+    function validStationeryTexture(textureId) {
+      return textureId in [
+        'handmade-ivory', 'lined-paper', 'aged-parchment',
+        'seamless-old-paper', 'sunwashed-wood', 'walnut-wood'
+      ];
+    }
+
+    function validTapeStyle(tapeId) {
+      return tapeId in [
+        'none', 'washi-01', 'washi-02', 'washi-03', 'washi-04', 'washi-05',
+        'washi-06', 'washi-07', 'washi-08', 'washi-09', 'washi-10', 'washi-11',
+        'washi-12', 'washi-13', 'washi-14'
+      ];
+    }
+
+    function validDecorationId(decorationId) {
+      return decorationId in [
+        'air-mail-envelope', 'baby-breath', 'cassette-01', 'cassette-02', 'cassette-03',
+        'closed-envelope', 'coffee-stains', 'feather', 'filmstrip-01', 'filmstrip-02',
+        'flower-01', 'flower-02', 'flower-03', 'flower-04', 'flower-05', 'folded-letter',
+        'luggage-tag', 'note-01', 'note-02', 'note-03', 'olive-branch', 'open-envelope',
+        'pin-01', 'pin-02', 'pin-03', 'pin-04', 'record-01', 'record-02', 'record-03',
+        'sticky-sage', 'sticky-01', 'sticky-02', 'sticky-03', 'ticket-01', 'ticket-02',
+        'ticket-03', 'ticket-04', 'torn-folded-note', 'torn-quote-note', 'twine-bow'
+      ];
+    }
+
+    function validDecorationIds(decorationIds) {
+      return decorationIds is list
+        && decorationIds.size() <= 3
+        && (decorationIds.size() < 1 || validDecorationId(decorationIds[0]))
+        && (decorationIds.size() < 2 || validDecorationId(decorationIds[1]))
+        && (decorationIds.size() < 3 || validDecorationId(decorationIds[2]))
+        && (decorationIds.size() < 2 || decorationIds[0] != decorationIds[1])
+        && (decorationIds.size() < 3 || decorationIds[0] != decorationIds[2])
+        && (decorationIds.size() < 3 || decorationIds[1] != decorationIds[2]);
+    }
+
+    function validProfile(userId) {
+      return request.resource.data.keys().hasAll([
+          'uid', 'email', 'displayName', 'createdAt', 'updatedAt'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'uid', 'email', 'displayName', 'createdAt', 'updatedAt'
+        ])
+        && request.resource.data.uid == userId
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.displayName is string
+        && request.resource.data.displayName.size() <= 80
+        && request.resource.data.updatedAt == request.time;
+    }
+
+    function validMemoryPhoto(photo, userId, memoryId) {
+      return photo is map
+        && photo.keys().hasAll(['publicId', 'version', 'format', 'width', 'height', 'bytes'])
+        && photo.keys().hasOnly(['publicId', 'version', 'format', 'width', 'height', 'bytes'])
+        && photo.publicId is string
+        && photo.publicId.matches('^solace/' + userId + '/memories/' + memoryId + '/[A-Za-z0-9_-]+$')
+        && photo.version is int
+        && photo.version > 0
+        && photo.format in ['jpg', 'png', 'webp']
+        && photo.width is int
+        && photo.width > 0
+        && photo.width <= 12000
+        && photo.height is int
+        && photo.height > 0
+        && photo.height <= 12000
+        && photo.bytes is int
+        && photo.bytes > 0
+        && photo.bytes <= 8388608;
+    }
+
+    function validMemoryPhotos(photos, userId, memoryId) {
+      return photos is list
+        && photos.size() <= 5
+        && (photos.size() == 0 || validMemoryPhoto(photos[0], userId, memoryId))
+        && (photos.size() < 2 || validMemoryPhoto(photos[1], userId, memoryId))
+        && (photos.size() < 3 || validMemoryPhoto(photos[2], userId, memoryId))
+        && (photos.size() < 4 || validMemoryPhoto(photos[3], userId, memoryId))
+        && (photos.size() < 5 || validMemoryPhoto(photos[4], userId, memoryId));
+    }
+
+    function validJournalPhoto(photo, userId, entryId) {
+      return photo is map
+        && photo.keys().hasAll(['publicId', 'version', 'format', 'width', 'height', 'bytes'])
+        && photo.keys().hasOnly(['publicId', 'version', 'format', 'width', 'height', 'bytes'])
+        && photo.publicId is string
+        && photo.publicId.matches('^solace/' + userId + '/journal/' + entryId + '/[A-Za-z0-9_-]+$')
+        && photo.version is int
+        && photo.version > 0
+        && photo.format in ['jpg', 'png', 'webp']
+        && photo.width is int
+        && photo.width > 0
+        && photo.width <= 12000
+        && photo.height is int
+        && photo.height > 0
+        && photo.height <= 12000
+        && photo.bytes is int
+        && photo.bytes > 0
+        && photo.bytes <= 8388608;
+    }
+
+    function validJournalPhotos(photos, userId, entryId) {
+      return photos is list
+        && photos.size() <= 10
+        && (photos.size() == 0 || validJournalPhoto(photos[0], userId, entryId))
+        && (photos.size() < 2 || validJournalPhoto(photos[1], userId, entryId))
+        && (photos.size() < 3 || validJournalPhoto(photos[2], userId, entryId))
+        && (photos.size() < 4 || validJournalPhoto(photos[3], userId, entryId))
+        && (photos.size() < 5 || validJournalPhoto(photos[4], userId, entryId))
+        && (photos.size() < 6 || validJournalPhoto(photos[5], userId, entryId))
+        && (photos.size() < 7 || validJournalPhoto(photos[6], userId, entryId))
+        && (photos.size() < 8 || validJournalPhoto(photos[7], userId, entryId))
+        && (photos.size() < 9 || validJournalPhoto(photos[8], userId, entryId))
+        && (photos.size() < 10 || validJournalPhoto(photos[9], userId, entryId));
+    }
+
+    function validMemory(userId, memoryId) {
+      return request.resource.data.keys().hasAll([
+          'ownerId', 'title', 'description', 'memoryDate', 'location', 'mood', 'tags', 'createdAt', 'updatedAt'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'ownerId', 'title', 'description', 'memoryDate', 'location', 'mood', 'tags', 'photos', 'createdAt', 'updatedAt'
+        ])
+        && request.resource.data.ownerId == userId
+        && request.resource.data.title is string
+        && request.resource.data.title.size() > 0
+        && request.resource.data.title.size() <= 120
+        && request.resource.data.description is string
+        && request.resource.data.description.size() <= 5000
+        && request.resource.data.memoryDate is string
+        && request.resource.data.memoryDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && request.resource.data.location is string
+        && request.resource.data.location.size() <= 120
+        && request.resource.data.mood in ['', 'joyful', 'grateful', 'nostalgic', 'peaceful', 'excited', 'tender', 'bittersweet']
+        && request.resource.data.tags is list
+        && request.resource.data.tags.size() <= 12
+        && (!request.resource.data.keys().hasAny(['photos'])
+          || validMemoryPhotos(request.resource.data.photos, userId, memoryId))
+        && request.resource.data.createdAt is timestamp
+        && request.resource.data.updatedAt is timestamp
+        && request.resource.data.updatedAt == request.time;
+    }
+
+    function ownsScrapbook(scrapbookId) {
+      let scrapbookPath = /databases/$(database)/documents/scrapbooks/$(scrapbookId);
+      return request.auth != null
+        && exists(scrapbookPath)
+        && get(scrapbookPath).data.ownerId == request.auth.uid;
+    }
+
+    function ownsScrapbookPage(scrapbookId, pageId) {
+      let pagePath = /databases/$(database)/documents/scrapbooks/$(scrapbookId)/pages/$(pageId);
+      return ownsScrapbook(scrapbookId) && exists(pagePath);
+    }
+
+    function ownsJournalEntry(entryId) {
+      let entryPath = /databases/$(database)/documents/journalEntries/$(entryId);
+      return request.auth != null
+        && exists(entryPath)
+        && get(entryPath).data.ownerId == request.auth.uid;
+    }
+
+    function validPlacedDecoration() {
+      return request.resource.data.keys().hasAll([
+          'assetId', 'x', 'y', 'size', 'rotation', 'zIndex', 'createdAt', 'updatedAt'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'assetId', 'x', 'y', 'size', 'rotation', 'zIndex', 'createdAt', 'updatedAt'
+        ])
+        && validDecorationId(request.resource.data.assetId)
+        && (request.resource.data.x is int || request.resource.data.x is float)
+        && request.resource.data.x >= 0
+        && request.resource.data.x <= 100
+        && (request.resource.data.y is int || request.resource.data.y is float)
+        && request.resource.data.y >= 0
+        && request.resource.data.y <= 100
+        && (request.resource.data.size is int || request.resource.data.size is float)
+        && request.resource.data.size >= 7
+        && request.resource.data.size <= 34
+        && (request.resource.data.rotation is int || request.resource.data.rotation is float)
+        && request.resource.data.rotation >= -45
+        && request.resource.data.rotation <= 45
+        && request.resource.data.zIndex is int
+        && request.resource.data.zIndex >= 0
+        && request.resource.data.zIndex <= 2000000000
+        && request.resource.data.createdAt is timestamp
+        && request.resource.data.updatedAt is timestamp
+        && request.resource.data.updatedAt == request.time;
+    }
+
+    function validScrapbook(userId) {
+      return request.resource.data.keys().hasAll([
+          'ownerId', 'title', 'description', 'cover', 'createdAt', 'updatedAt'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'ownerId', 'title', 'description', 'cover', 'coverArtwork', 'createdAt', 'updatedAt'
+        ])
+        && request.resource.data.ownerId == userId
+        && request.resource.data.title is string
+        && request.resource.data.title.size() > 0
+        && request.resource.data.title.size() <= 100
+        && request.resource.data.description is string
+        && request.resource.data.description.size() <= 500
+        && request.resource.data.cover in ['starlight', 'meadow', 'ember']
+        && (!request.resource.data.keys().hasAny(['coverArtwork'])
+          || request.resource.data.coverArtwork in [
+            'polaroid-01', 'polaroid-02', 'polaroid-03', 'polaroid-04', 'polaroid-05',
+            'polaroid-06', 'polaroid-07', 'polaroid-08', 'polaroid-09'
+          ])
+        && request.resource.data.createdAt is timestamp
+        && request.resource.data.updatedAt == request.time;
+    }
+
+    function validScrapbookPage() {
+      return request.resource.data.keys().hasAll([
+          'title', 'layout', 'paper', 'textureId', 'tapeId', 'vibe',
+          'caption', 'memoryId', 'photos', 'track', 'createdAt', 'updatedAt'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'title', 'layout', 'paper', 'textureId', 'tapeId', 'vibe', 'decorationIds',
+          'caption', 'memoryId', 'photos', 'track', 'createdAt', 'updatedAt'
+        ])
+        && request.resource.data.title is string
+        && request.resource.data.title.size() > 0
+        && request.resource.data.title.size() <= 80
+        && request.resource.data.layout in ['polaroid', 'postcard', 'filmstrip']
+        && request.resource.data.paper in ['cream', 'sage', 'rose', 'night']
+        && validStationeryTexture(request.resource.data.textureId)
+        && validTapeStyle(request.resource.data.tapeId)
+        && request.resource.data.vibe in [
+          'core-memory', 'photo-dump', 'main-character',
+          'soft-life', 'chaotic-good', 'after-hours'
+        ]
+        && (!request.resource.data.keys().hasAny(['decorationIds'])
+          || validDecorationIds(request.resource.data.decorationIds))
+        && request.resource.data.caption is string
+        && request.resource.data.caption.size() <= 1600
+        && request.resource.data.memoryId is string
+        && request.resource.data.memoryId.size() <= 128
+        && (request.resource.data.memoryId == ''
+          || !request.resource.data.memoryId.matches('.*[/].*'))
+        && (request.resource.data.memoryId == ''
+          || (exists(/databases/$(database)/documents/memories/$(request.resource.data.memoryId))
+            && get(/databases/$(database)/documents/memories/$(request.resource.data.memoryId)).data.ownerId == request.auth.uid))
+        && validScrapbookPhotos(request.resource.data.photos)
+        && validScrapbookTrack(request.resource.data.track)
+        && request.resource.data.createdAt is timestamp
+        && request.resource.data.updatedAt == request.time;
+    }
+
+    function validJournalEntry(userId, entryId) {
+      return request.resource.data.keys().hasAll([
+          'ownerId', 'title', 'body', 'entryDate', 'mood', 'textureId', 'tapeId',
+          'createdAt', 'updatedAt'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'ownerId', 'title', 'body', 'entryDate', 'mood', 'textureId', 'tapeId',
+          'decorationIds', 'photos', 'createdAt', 'updatedAt'
+        ])
+        && request.resource.data.ownerId == userId
+        && request.resource.data.title is string
+        && request.resource.data.title.size() > 0
+        && request.resource.data.title.size() <= 120
+        && request.resource.data.body is string
+        && request.resource.data.body.size() > 0
+        && request.resource.data.body.size() <= 12000
+        && request.resource.data.entryDate is string
+        && request.resource.data.entryDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && request.resource.data.mood in ['', 'joyful', 'grateful', 'nostalgic', 'peaceful', 'excited', 'tender', 'bittersweet']
+        && validStationeryTexture(request.resource.data.textureId)
+        && validTapeStyle(request.resource.data.tapeId)
+        && (!request.resource.data.keys().hasAny(['decorationIds'])
+          || validDecorationIds(request.resource.data.decorationIds))
+        && (!request.resource.data.keys().hasAny(['photos'])
+          || validJournalPhotos(request.resource.data.photos, userId, entryId))
+        && request.resource.data.createdAt is timestamp
+        && request.resource.data.updatedAt == request.time;
+    }
+
+    function validScrapbookTrack(track) {
+      return track == null
+        || (track is map
+          && track.keys().hasAll(['title', 'artist', 'url', 'note'])
+          && track.keys().hasOnly(['title', 'artist', 'url', 'note'])
+          && track.title is string
+          && track.title.size() > 0
+          && track.title.size() <= 120
+          && track.artist is string
+          && track.artist.size() > 0
+          && track.artist.size() <= 120
+          && track.url is string
+          && track.url.matches('^https://([A-Za-z0-9-]+[.])*(open[.]spotify[.]com|music[.]apple[.]com|music[.]youtube[.]com|youtube[.]com|youtu[.]be|soundcloud[.]com|on[.]soundcloud[.]com)/.*$')
+          && track.url.size() <= 500
+          && track.note is string
+          && track.note.size() <= 500);
+    }
+
+    function validScrapbookPhoto(photo) {
+      return photo is map
+        && photo.keys().hasAll(['publicId', 'version', 'format', 'width', 'height', 'bytes'])
+        && photo.keys().hasOnly(['publicId', 'version', 'format', 'width', 'height', 'bytes'])
+        && photo.publicId is string
+        && photo.publicId.matches('^solace/[A-Za-z0-9_-]+/scrapbooks/[A-Za-z0-9_-]+/[A-Za-z0-9_-]+/[A-Za-z0-9_-]+$')
+        && photo.version is int
+        && photo.version > 0
+        && photo.format in ['jpg', 'png', 'webp']
+        && photo.width is int
+        && photo.width > 0
+        && photo.width <= 12000
+        && photo.height is int
+        && photo.height > 0
+        && photo.height <= 12000
+        && photo.bytes is int
+        && photo.bytes > 0
+        && photo.bytes <= 8388608;
+    }
+
+    function validScrapbookPhotos(photos) {
+      return photos is list
+        && photos.size() <= 3
+        && (photos.size() == 0 || validScrapbookPhoto(photos[0]))
+        && (photos.size() < 2 || validScrapbookPhoto(photos[1]))
+        && (photos.size() < 3 || validScrapbookPhoto(photos[2]));
+    }
+
+    match /users/{userId} {
+      allow read: if signedInAs(userId);
+      allow create: if signedInAs(userId)
+        && validProfile(userId)
+        && request.resource.data.createdAt == request.time;
+      allow update: if signedInAs(userId)
+        && validProfile(userId)
+        && request.resource.data.createdAt == resource.data.createdAt;
+      allow delete: if false;
+    }
+
+    match /memories/{memoryId} {
+      allow read: if request.auth != null && resource.data.ownerId == request.auth.uid;
+      allow create: if request.auth != null
+        && validMemory(request.auth.uid, memoryId)
+        && request.resource.data.createdAt == request.time;
+      allow update: if request.auth != null
+        && resource.data.ownerId == request.auth.uid
+        && validMemory(request.auth.uid, memoryId)
+        && request.resource.data.createdAt == resource.data.createdAt;
+      allow delete: if request.auth != null && resource.data.ownerId == request.auth.uid;
+    }
+
+    match /scrapbooks/{scrapbookId} {
+      allow read: if request.auth != null && resource.data.ownerId == request.auth.uid;
+      allow create: if request.auth != null
+        && validScrapbook(request.auth.uid)
+        && request.resource.data.createdAt == request.time;
+      allow update: if request.auth != null
+        && resource.data.ownerId == request.auth.uid
+        && validScrapbook(request.auth.uid)
+        && request.resource.data.createdAt == resource.data.createdAt;
+      allow delete: if request.auth != null && resource.data.ownerId == request.auth.uid;
+
+      match /pages/{pageId} {
+        allow read: if ownsScrapbook(scrapbookId);
+        allow create: if ownsScrapbook(scrapbookId)
+          && validScrapbookPage()
+          && request.resource.data.createdAt == request.time;
+        allow update: if ownsScrapbook(scrapbookId)
+          && validScrapbookPage()
+          && request.resource.data.createdAt == resource.data.createdAt;
+        allow delete: if ownsScrapbook(scrapbookId);
+
+        match /decorations/{decorationId} {
+          allow read: if ownsScrapbookPage(scrapbookId, pageId);
+          allow create: if ownsScrapbookPage(scrapbookId, pageId)
+            && validPlacedDecoration()
+            && request.resource.data.createdAt == request.time;
+          allow update: if ownsScrapbookPage(scrapbookId, pageId)
+            && validPlacedDecoration()
+            && request.resource.data.createdAt == resource.data.createdAt;
+          allow delete: if ownsScrapbookPage(scrapbookId, pageId);
+        }
+      }
+    }
+
+    match /journalEntries/{entryId} {
+      allow read: if request.auth != null && resource.data.ownerId == request.auth.uid;
+      allow create: if request.auth != null
+        && validJournalEntry(request.auth.uid, entryId)
+        && request.resource.data.createdAt == request.time;
+      allow update: if request.auth != null
+        && resource.data.ownerId == request.auth.uid
+        && validJournalEntry(request.auth.uid, entryId)
+        && request.resource.data.createdAt == resource.data.createdAt;
+      allow delete: if request.auth != null && resource.data.ownerId == request.auth.uid;
+
+      match /decorations/{decorationId} {
+        allow read: if ownsJournalEntry(entryId);
+        allow create: if ownsJournalEntry(entryId)
+          && validPlacedDecoration()
+          && request.resource.data.createdAt == request.time;
+        allow update: if ownsJournalEntry(entryId)
+          && validPlacedDecoration()
+          && request.resource.data.createdAt == resource.data.createdAt;
+        allow delete: if ownsJournalEntry(entryId);
+      }
+    }
+
+    // Capsule contents are returned only by the trusted API after its server-clock unlock check.
+    match /timeCapsules/{capsuleId} {
+      allow read, write: if false;
+    }
+
+    // Everything else stays private until a collection has explicit rules.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 import {
   Archive,
   BookHeart,
@@ -10,6 +11,8 @@ import {
   Hourglass,
   Images,
   LogOut,
+  PanelLeftClose,
+  PanelLeftOpen,
   Settings,
 } from "lucide-react";
 import { signOutEverywhere } from "@/lib/auth/actions";
@@ -25,6 +28,8 @@ const primaryLinks = [
   { href: "/archive", label: "Archive", icon: Archive, next: true },
 ] as const;
 
+const SIDEBAR_PREFERENCE_KEY = "solace-sidebar-collapsed";
+
 export function AppShell({
   children,
   profile,
@@ -34,7 +39,21 @@ export function AppShell({
 }) {
   const pathname = usePathname();
   const router = useRouter();
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const initial = profile.displayName.trim().charAt(0).toUpperCase() || "S";
+  const isJournalRoute = pathname === "/journal" || pathname.startsWith("/journal/");
+
+  useEffect(() => {
+    setSidebarCollapsed(window.localStorage.getItem(SIDEBAR_PREFERENCE_KEY) === "true");
+  }, []);
+
+  function toggleSidebar() {
+    setSidebarCollapsed((current) => {
+      const next = !current;
+      window.localStorage.setItem(SIDEBAR_PREFERENCE_KEY, String(next));
+      return next;
+    });
+  }
 
   async function handleSignOut() {
     await signOutEverywhere();
@@ -43,11 +62,24 @@ export function AppShell({
   }
 
   return (
-    <div className="app-frame page-grain">
+    <div className={"app-frame page-grain" + (sidebarCollapsed ? " sidebar-collapsed" : "") + (isJournalRoute ? " journal-route-frame" : "")}>
       <aside className="app-sidebar" aria-label="Application navigation">
-        <Wordmark />
+        <div className="sidebar-brand-row">
+          <Wordmark compact={sidebarCollapsed} />
+          <button
+            aria-controls="application-primary-navigation"
+            aria-expanded={!sidebarCollapsed}
+            aria-label={sidebarCollapsed ? "Expand navigation" : "Collapse navigation"}
+            className="sidebar-toggle"
+            onClick={toggleSidebar}
+            title={sidebarCollapsed ? "Expand navigation" : "Collapse navigation"}
+            type="button"
+          >
+            {sidebarCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
+          </button>
+        </div>
         <span className="sidebar-caption">Your memory home</span>
-        <nav className="app-nav">
+        <nav className="app-nav" id="application-primary-navigation">
           {primaryLinks.map(({ href, label, icon: Icon, ...rest }) => {
             const isActive = pathname === href || (href !== "/home" && pathname.startsWith(href + "/"));
             return (
@@ -56,22 +88,33 @@ export function AppShell({
                 className={"app-nav-link" + (isActive ? " active" : "")}
                 href={href}
                 key={href}
+                title={sidebarCollapsed ? label : undefined}
               >
                 <Icon size={17} strokeWidth={1.8} />
-                <span>{label}</span>
+                <span className="sidebar-link-label">{label}</span>
                 {"next" in rest && <span className="soon-label">Next</span>}
               </Link>
             );
           })}
         </nav>
         <div className="sidebar-bottom">
-          <Link className={"app-nav-link" + (pathname === "/settings" ? " active" : "")} href="/settings">
+          <Link
+            className={"app-nav-link" + (pathname === "/settings" ? " active" : "")}
+            href="/settings"
+            title={sidebarCollapsed ? "Settings" : undefined}
+          >
             <Settings size={17} strokeWidth={1.8} />
-            <span>Settings</span>
+            <span className="sidebar-link-label">Settings</span>
           </Link>
           <div className="sidebar-user" title={profile.email}>{profile.displayName} · {profile.email}</div>
-          <button className="signout-button" onClick={handleSignOut} type="button">
-            <LogOut size={16} /> Sign out
+          <button
+            className="signout-button"
+            onClick={handleSignOut}
+            title={sidebarCollapsed ? "Sign out" : undefined}
+            type="button"
+          >
+            <LogOut size={16} />
+            <span className="sidebar-link-label">Sign out</span>
           </button>
         </div>
       </aside>

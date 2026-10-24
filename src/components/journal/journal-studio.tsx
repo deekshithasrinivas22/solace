@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, ty
 import Image from "next/image";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
-  BookHeart, Bold, CalendarDays, Check, ChevronLeft, ChevronRight, Clock3, Eye,
+  BookHeart, Bold, CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, Clock3, Eye,
   ImagePlus, Images, Italic, List, LoaderCircle, Moon, PenLine, Plus, Quote,
   Search, Save, Sparkles, Trash2, X,
 } from "lucide-react";
@@ -513,9 +513,9 @@ export function JournalStudio() {
           transition={{ duration: 0.38 }}
         >
           <div>
-            <span className="eyebrow">Dear me · your private pages</span>
-            <h1 className="serif">A softer place to hear yourself.</h1>
-            <p>Write what happened, how it felt, or anything you want to understand a little better.</p>
+            <span className="eyebrow">Your field journal · private by default</span>
+            <h1 className="serif">A little story, kept in your own words.</h1>
+            <p>Small moments, whole seasons, and everything in between.</p>
           </div>
           {user && <div className="journal-heading-actions">
             <button className="button-secondary" onClick={startMindUnload} type="button"><Moon size={16} /> Mind unload</button>
@@ -537,7 +537,14 @@ export function JournalStudio() {
       ) : !user ? (
         <div className="journal-workspace-empty"><BookHeart size={26} /><h2 className="serif">Sign in to open your journal.</h2><p>Your journal pages are private to your account.</p></div>
       ) : (
-        <div className={"journal-layout" + (mindUnload ? " journal-layout-unload" : "")}>          {!mindUnload && <aside aria-label="Find a journal page" className="journal-browse-panel">
+        <div className={"journal-layout" + (mindUnload ? " journal-layout-unload" : "")}>          {!mindUnload && <details className="journal-library">
+            <summary className="journal-library-summary">
+              <span className="journal-library-title"><BookHeart size={17} /> Your pages</span>
+              <strong>{entries.length} {entries.length === 1 ? "page" : "pages"}</strong>
+              <span className="journal-library-browse">Browse your journal</span>
+              <ChevronDown className="journal-library-chevron" size={17} aria-hidden="true" />
+            </summary>
+            <aside aria-label="Find a journal page" className="journal-browse-panel">
             <div className="journal-browse-heading">
               <div><span className="eyebrow">Your pages</span><strong>{entries.length}</strong></div>
               <div className="journal-view-switch" role="group" aria-label="Page view">
@@ -599,7 +606,8 @@ export function JournalStudio() {
                 <button className="journal-new-from-list" onClick={() => startNewEntry()} type="button"><Plus size={15} /> Write a page</button>
               </>
             )}
-          </aside>}
+          </aside>
+          </details>}
 
           <form className="journal-editor" onSubmit={(event) => void saveEntry(event)}>
             {mindUnload && <div className="journal-unload-note"><span>Nothing needs to be polished. Just begin.</span><span>{saveLabel}</span></div>}

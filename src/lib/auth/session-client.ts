@@ -1,6 +1,8 @@
 import type { User } from "firebase/auth";
 
-export async function createServerSession(user: User) {
+const pendingSessions = new Map<string, Promise<void>>();
+
+async function postServerSession(user: User) {
   const idToken = await user.getIdToken();
   const response = await fetch("/api/auth/session", {
     method: "POST",
@@ -12,6 +14,17 @@ export async function createServerSession(user: User) {
     const result = (await response.json().catch(() => null)) as { error?: string } | null;
     throw new Error(result?.error ?? "We couldn't start a secure session. Please try again.");
   }
+}
+
+export function createServerSession(user: User) {
+  const existing = pendingSessions.get(user.uid);
+  if (existing) return existing;
+
+  const request = postServerSession(user).finally(() => {
+    if (pendingSessions.get(user.uid) === request) pendingSessions.delete(user.uid);
+  });
+  pendingSessions.set(user.uid, request);
+  return request;
 }
 
 export async function clearServerSession() {

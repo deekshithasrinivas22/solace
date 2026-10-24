@@ -246,6 +246,9 @@ describe("Firestore private journal rules", () => {
     await assertSucceeds(setDoc(entry, journalEntryData("ari")));
     await assertSucceeds(getDoc(entry));
     await assertSucceeds(updateDoc(entry, { body: "The clouds went pink.", updatedAt: serverTimestamp() }));
+    await assertSucceeds(updateDoc(entry, { title: "", tags: ["quiet day", "friends"], updatedAt: serverTimestamp() }));
+    await assertFails(updateDoc(entry, { tags: Array(13).fill("tag"), updatedAt: serverTimestamp() }));
+    await assertFails(updateDoc(entry, { tags: ["x".repeat(31)], updatedAt: serverTimestamp() }));
 
     const keepsake = doc(db, "journalEntries", "ari-entry", "decorations", "flower-one");
     await assertSucceeds(setDoc(keepsake, placedDecorationData("ticket-04")));

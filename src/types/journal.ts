@@ -8,6 +8,7 @@ export type JournalEntry = {
   body: string;
   entryDate: string;
   mood: MemoryMood | "";
+  tags?: string[];
   textureId?: PaperTextureId;
   tapeId?: TapeStyleId;
   decorationIds?: DecorationId[];
@@ -23,6 +24,7 @@ export type JournalEntryInput = {
   body: string;
   entryDate: string;
   mood: MemoryMood | "";
+  tags: string[];
   textureId: PaperTextureId;
   tapeId: TapeStyleId;
 };

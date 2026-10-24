@@ -132,7 +132,6 @@ service cloud.firestore {
         ])
         && request.resource.data.ownerId == userId
         && request.resource.data.title is string
-        && request.resource.data.title.size() > 0
         && request.resource.data.title.size() <= 120
         && request.resource.data.description is string
         && request.resource.data.description.size() <= 5000
@@ -206,7 +205,6 @@ service cloud.firestore {
         ])
         && request.resource.data.ownerId == userId
         && request.resource.data.title is string
-        && request.resource.data.title.size() > 0
         && request.resource.data.title.size() <= 100
         && request.resource.data.description is string
         && request.resource.data.description.size() <= 500
@@ -230,7 +228,6 @@ service cloud.firestore {
           'caption', 'memoryId', 'photos', 'track', 'createdAt', 'updatedAt'
         ])
         && request.resource.data.title is string
-        && request.resource.data.title.size() > 0
         && request.resource.data.title.size() <= 80
         && request.resource.data.layout in ['polaroid', 'postcard', 'filmstrip']
         && request.resource.data.paper in ['cream', 'sage', 'rose', 'night']
@@ -257,6 +254,26 @@ service cloud.firestore {
         && request.resource.data.updatedAt == request.time;
     }
 
+    function validJournalTag(tag) {
+      return tag is string && tag.size() > 0 && tag.size() <= 30;
+    }
+
+    function validJournalTags(tags) {
+      return tags is list
+        && tags.size() <= 12
+        && (tags.size() < 1 || validJournalTag(tags[0]))
+        && (tags.size() < 2 || validJournalTag(tags[1]))
+        && (tags.size() < 3 || validJournalTag(tags[2]))
+        && (tags.size() < 4 || validJournalTag(tags[3]))
+        && (tags.size() < 5 || validJournalTag(tags[4]))
+        && (tags.size() < 6 || validJournalTag(tags[5]))
+        && (tags.size() < 7 || validJournalTag(tags[6]))
+        && (tags.size() < 8 || validJournalTag(tags[7]))
+        && (tags.size() < 9 || validJournalTag(tags[8]))
+        && (tags.size() < 10 || validJournalTag(tags[9]))
+        && (tags.size() < 11 || validJournalTag(tags[10]))
+        && (tags.size() < 12 || validJournalTag(tags[11]));
+    }
     function validJournalEntry(userId, entryId) {
       return request.resource.data.keys().hasAll([
           'ownerId', 'title', 'body', 'entryDate', 'mood', 'textureId', 'tapeId',
@@ -264,11 +281,10 @@ service cloud.firestore {
         ])
         && request.resource.data.keys().hasOnly([
           'ownerId', 'title', 'body', 'entryDate', 'mood', 'textureId', 'tapeId',
-          'decorationIds', 'photos', 'createdAt', 'updatedAt'
+          'decorationIds', 'photos', 'tags', 'createdAt', 'updatedAt'
         ])
         && request.resource.data.ownerId == userId
         && request.resource.data.title is string
-        && request.resource.data.title.size() > 0
         && request.resource.data.title.size() <= 120
         && request.resource.data.body is string
         && request.resource.data.body.size() > 0
@@ -282,6 +298,8 @@ service cloud.firestore {
           || validDecorationIds(request.resource.data.decorationIds))
         && (!request.resource.data.keys().hasAny(['photos'])
           || validJournalPhotos(request.resource.data.photos, userId, entryId))
+        && (!request.resource.data.keys().hasAny(['tags'])
+          || validJournalTags(request.resource.data.tags))
         && request.resource.data.createdAt is timestamp
         && request.resource.data.updatedAt == request.time;
     }

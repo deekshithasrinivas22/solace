@@ -1,8 +1,9 @@
+"use client";
+
 import {
   doc,
-  getDoc,
+  runTransaction,
   serverTimestamp,
-  setDoc,
   updateDoc,
 } from "firebase/firestore";
 import { updateProfile, type User } from "firebase/auth";
@@ -15,25 +16,40 @@ function profileReference(userId: string) {
 
 export async function ensureUserProfile(user: User, displayName?: string): Promise<UserProfile> {
   const reference = profileReference(user.uid);
-  const profileSnapshot = await getDoc(reference);
   const resolvedName = displayName?.trim() || user.displayName?.trim() || "Memory keeper";
 
-  if (!profileSnapshot.exists()) {
-    const profile: Omit<UserProfile, "createdAt" | "updatedAt"> & {
-      createdAt: ReturnType<typeof serverTimestamp>;
-      updatedAt: ReturnType<typeof serverTimestamp>;
-    } = {
-      uid: user.uid,
-      email: user.email ?? "",
-      displayName: resolvedName,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    };
-    await setDoc(reference, profile);
-    return { ...profile, createdAt: null, updatedAt: null };
-  }
+  return runTransaction(getFirebaseDb(), async (transaction) => {
+    const profileSnapshot = await transaction.get(reference);
 
-  return profileSnapshot.data() as UserProfile;
+    if (!profileSnapshot.exists()) {
+      const profile: UserProfile = {
+        uid: user.uid,
+        email: user.email ?? "",
+        displayName: resolvedName,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      };
+      transaction.set(reference, profile);
+      return { ...profile, createdAt: null, updatedAt: null };
+    }
+
+    const existingProfile = profileSnapshot.data() as UserProfile;
+    if (displayName?.trim() && existingProfile.displayName !== resolvedName) {
+      transaction.update(reference, {
+        displayName: resolvedName,
+        email: user.email ?? "",
+        updatedAt: serverTimestamp(),
+      });
+      return {
+        ...existingProfile,
+        displayName: resolvedName,
+        email: user.email ?? "",
+        updatedAt: null,
+      };
+    }
+
+    return existingProfile;
+  });
 }
 
 export async function updateUserDisplayName(user: User, displayName: string) {

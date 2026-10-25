@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
 import {
   Archive,
   BookHeart,
@@ -13,6 +13,7 @@ import {
   LogOut,
   PanelLeftClose,
   PanelLeftOpen,
+  Plus,
   Settings,
 } from "lucide-react";
 import { signOutEverywhere } from "@/lib/auth/actions";
@@ -25,10 +26,37 @@ const primaryLinks = [
   { href: "/scrapbooks", label: "Scrapbooks", icon: BookOpen },
   { href: "/journal", label: "Journal", icon: BookHeart },
   { href: "/capsules", label: "Time capsules", icon: Hourglass },
-  { href: "/archive", label: "Archive", icon: Archive, next: true },
+  { href: "/archive", label: "Archive", icon: Archive },
 ] as const;
 
 const SIDEBAR_PREFERENCE_KEY = "solace-sidebar-collapsed";
+const sidebarPreferenceListeners = new Set<() => void>();
+
+function readSidebarPreference() {
+  try {
+    return window.localStorage.getItem(SIDEBAR_PREFERENCE_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+function subscribeToSidebarPreference(listener: () => void) {
+  sidebarPreferenceListeners.add(listener);
+  window.addEventListener("storage", listener);
+  return () => {
+    sidebarPreferenceListeners.delete(listener);
+    window.removeEventListener("storage", listener);
+  };
+}
+
+function saveSidebarPreference(collapsed: boolean) {
+  try {
+    window.localStorage.setItem(SIDEBAR_PREFERENCE_KEY, String(collapsed));
+  } catch {
+    // The current tab still updates when browser storage is unavailable.
+  }
+  sidebarPreferenceListeners.forEach((listener) => listener());
+}
 
 export function AppShell({
   children,
@@ -39,20 +67,12 @@ export function AppShell({
 }) {
   const pathname = usePathname();
   const router = useRouter();
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const sidebarCollapsed = useSyncExternalStore(subscribeToSidebarPreference, readSidebarPreference, () => false);
   const initial = profile.displayName.trim().charAt(0).toUpperCase() || "S";
   const isJournalRoute = pathname === "/journal" || pathname.startsWith("/journal/");
 
-  useEffect(() => {
-    setSidebarCollapsed(window.localStorage.getItem(SIDEBAR_PREFERENCE_KEY) === "true");
-  }, []);
-
   function toggleSidebar() {
-    setSidebarCollapsed((current) => {
-      const next = !current;
-      window.localStorage.setItem(SIDEBAR_PREFERENCE_KEY, String(next));
-      return next;
-    });
+    saveSidebarPreference(!sidebarCollapsed);
   }
 
   async function handleSignOut() {
@@ -78,9 +98,9 @@ export function AppShell({
             {sidebarCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
           </button>
         </div>
-        <span className="sidebar-caption">Your memory home</span>
+        <span className="sidebar-caption">Your little corners</span>
         <nav className="app-nav" id="application-primary-navigation">
-          {primaryLinks.map(({ href, label, icon: Icon, ...rest }) => {
+          {primaryLinks.map(({ href, label, icon: Icon }) => {
             const isActive = pathname === href || (href !== "/home" && pathname.startsWith(href + "/"));
             return (
               <Link
@@ -92,11 +112,14 @@ export function AppShell({
               >
                 <Icon size={17} strokeWidth={1.8} />
                 <span className="sidebar-link-label">{label}</span>
-                {"next" in rest && <span className="soon-label">Next</span>}
               </Link>
             );
           })}
         </nav>
+        <Link className="sidebar-create-link" href="/memories" title={sidebarCollapsed ? "Make a memory" : undefined}>
+          <Plus size={17} strokeWidth={2} />
+          <span className="sidebar-link-label">Make a memory</span>
+        </Link>
         <div className="sidebar-bottom">
           <Link
             className={"app-nav-link" + (pathname === "/settings" ? " active" : "")}
@@ -106,7 +129,13 @@ export function AppShell({
             <Settings size={17} strokeWidth={1.8} />
             <span className="sidebar-link-label">Settings</span>
           </Link>
-          <div className="sidebar-user" title={profile.email}>{profile.displayName} · {profile.email}</div>
+          <div className="sidebar-profile" title={profile.email}>
+            <span className="avatar" aria-hidden="true">{initial}</span>
+            <span className="sidebar-profile-copy">
+              <strong>{profile.displayName}</strong>
+              <small>{profile.email}</small>
+            </span>
+          </div>
           <button
             className="signout-button"
             onClick={handleSignOut}
@@ -122,6 +151,7 @@ export function AppShell({
       <header className="mobile-header">
         <Wordmark />
         <div className="mobile-account">
+          <Link className="mobile-create-link" href="/memories"><Plus size={16} /> New memory</Link>
           <span className="avatar" aria-label={"Signed in as " + profile.displayName}>{initial}</span>
           <button className="signout-button" onClick={handleSignOut} type="button">
             <LogOut size={15} /> Leave
@@ -131,10 +161,16 @@ export function AppShell({
 
       <main className="app-main">
         <div className="app-topline">
-          <span className="topline-caption">A softer place to land · private by default</span>
+          <div className="app-topline-context">
+            <span className="topline-kicker">YOUR PRIVATE MEMORY BOARD</span>
+            <span className="topline-caption">A softer place to land, at your own pace.</span>
+          </div>
           <div className="app-top-actions">
-            <span className="topline-caption">{profile.displayName}</span>
-            <span className="avatar" aria-hidden="true">{initial}</span>
+            <Link className="topline-create-button" href="/memories"><Plus size={16} /> Add a moment</Link>
+            <Link className="topline-profile" href="/settings" aria-label="Open profile and settings">
+              <span className="topline-caption">{profile.displayName}</span>
+              <span className="avatar" aria-hidden="true">{initial}</span>
+            </Link>
           </div>
         </div>
         <div className="app-content">{children}</div>

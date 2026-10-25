@@ -678,7 +678,15 @@ function ScrapbookPagePreview({
     frameHeight: number;
   };
   const dragRef = useRef<DragState | null>(null);
+  const captionRef = useRef<HTMLTextAreaElement>(null);
   const [dragPosition, setDragPosition] = useState<{ publicId: string; x: number; y: number } | null>(null);
+
+  useEffect(() => {
+    const caption = captionRef.current;
+    if (!caption) return;
+    caption.style.height = "auto";
+    caption.style.height = `${caption.scrollHeight}px`;
+  }, [draft.caption]);
 
   function photoPosition(photo: ScrapbookPhoto, index: number) {
     return photo.position ?? defaultScrapbookPhotoPosition(draft.layout, index);
@@ -801,7 +809,7 @@ function ScrapbookPagePreview({
           <span className="handwritten">{book.title}</span>
           <span className={"scrapbook-vibe scrapbook-vibe-" + draft.vibe}>{scrapbookVibeLabels[draft.vibe]}</span>
           <input aria-label="Page title. Click here to write." className="scrapbook-page-title-input serif" maxLength={80} onChange={(event) => onTextChange("title", event.target.value)} placeholder="A page to remember" value={draft.title} />
-          <textarea aria-label="Page note. Click here to write." className="scrapbook-page-caption-input" maxLength={1600} onChange={(event) => onTextChange("caption", event.target.value)} placeholder="Click here to write your story…" rows={3} value={draft.caption} />
+          <textarea aria-label="Page note. Click here to write." className="scrapbook-page-caption-input" maxLength={1600} onChange={(event) => onTextChange("caption", event.target.value)} placeholder="Click here to write your story…" ref={captionRef} rows={1} value={draft.caption} />
           {linkedMemory && (
             <span className="scrapbook-linked-memory"><MapPin size={12} /> From “{linkedMemory.title}”{linkedMemory.mood ? ` · ${memoryMoodLabels[linkedMemory.mood as MemoryMood]}` : ""}</span>
           )}

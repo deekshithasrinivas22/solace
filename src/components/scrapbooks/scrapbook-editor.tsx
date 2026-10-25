@@ -69,6 +69,8 @@ function pageInput(page: ScrapbookPage): ScrapbookPageInput {
   };
 }
 
+type ScrapbookControlSection = "page" | "story" | "photos";
+
 function firestoreError(error: unknown) {
   const code = typeof error === "object" && error !== null && "code" in error
     ? String((error as { code: unknown }).code)
@@ -100,6 +102,7 @@ export function ScrapbookEditor({ scrapbookId }: { scrapbookId: string }) {
   const [renameOpen, setRenameOpen] = useState(false);
   const [deletePageOpen, setDeletePageOpen] = useState(false);
   const [pendingDecorationId, setPendingDecorationId] = useState<DecorationId | null>(null);
+  const [controlSection, setControlSection] = useState<ScrapbookControlSection>("page");
   const photoInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -301,6 +304,7 @@ export function ScrapbookEditor({ scrapbookId }: { scrapbookId: string }) {
         track: null,
       });
       setSelectedPageId(pageId);
+      setControlSection("page");
       setPendingDecorationId(null);
       setNotice("A new page is ready for you.");
     } catch (error) {
@@ -334,6 +338,7 @@ export function ScrapbookEditor({ scrapbookId }: { scrapbookId: string }) {
       const nextPage = pages.find((page) => page.id !== deletedPageId);
       setPages((current) => current.filter((page) => page.id !== deletedPageId));
       setSelectedPageId(nextPage?.id ?? "");
+      setControlSection("page");
       setPendingDecorationId(null);
       setDrafts((current) => {
         const next = { ...current };
@@ -435,138 +440,137 @@ export function ScrapbookEditor({ scrapbookId }: { scrapbookId: string }) {
       {(pageError || actionError) && <p className="memory-error" role="alert">{pageError || actionError}</p>}
 
       <div className="scrapbook-editor-layout">
-        <aside className="scrapbook-pages-rail" aria-label="Scrapbook pages">
-          <div className="scrapbook-rail-heading"><span className="eyebrow">In this book</span><strong>{pages.length} {pages.length === 1 ? "page" : "pages"}</strong></div>
-          {pages.length ? (
-            <div className="scrapbook-page-tabs">
-              {pages.map((page, index) => (
-                <button
-                  aria-current={selectedPage?.id === page.id ? "page" : undefined}
-                  className={`scrapbook-page-tab ${selectedPage?.id === page.id ? "active" : ""}`}
-                  key={page.id}
-                  onClick={() => { setSelectedPageId(page.id); setPendingDecorationId(null); setNotice(""); setPhotoLoadingError(""); }}
-                  type="button"
-                >
-                  <span className={`scrapbook-page-tab-preview scrapbook-paper-${page.paper}`}><span>{index + 1}</span><i /></span>
-                  <span><strong>{page.title}</strong><small>{scrapbookLayoutLabels[page.layout]}</small></span>
-                </button>
-              ))}
+        <div className="scrapbook-canvas-column">
+          <aside className="scrapbook-pages-rail" aria-label="Scrapbook pages">
+            <div className="scrapbook-rail-heading"><span className="eyebrow">Pages in this book</span><strong>{pages.length} {pages.length === 1 ? "page" : "pages"}</strong></div>
+            <div className="scrapbook-page-browser">
+              {pages.length ? (
+                <div className="scrapbook-page-tabs">
+                  {pages.map((page, index) => (
+                    <button
+                      aria-current={selectedPage?.id === page.id ? "page" : undefined}
+                      className={`scrapbook-page-tab ${selectedPage?.id === page.id ? "active" : ""}`}
+                      key={page.id}
+                      onClick={() => { setSelectedPageId(page.id); setControlSection("page"); setPendingDecorationId(null); setNotice(""); setPhotoLoadingError(""); }}
+                      type="button"
+                    >
+                      <span className={`scrapbook-page-tab-preview scrapbook-paper-${page.paper}`}><span>{index + 1}</span><i /></span>
+                      <span><strong>{page.title}</strong><small>{scrapbookLayoutLabels[page.layout]}</small></span>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="scrapbook-pages-empty"><Sparkles size={16} /><p>Your first page will appear here.</p></div>
+              )}
+              <button className="scrapbook-add-page-rail" disabled={pending === "create"} onClick={() => void addPage()} type="button"><Plus size={14} /> Add page</button>
             </div>
-          ) : (
-            <div className="scrapbook-pages-empty"><Sparkles size={16} /><p>Your first page will appear here.</p></div>
-          )}
-          <button className="scrapbook-add-page-rail" disabled={pending === "create"} onClick={() => void addPage()} type="button"><Plus size={14} /> Add page</button>
-        </aside>
+          </aside>
 
-        <section className="scrapbook-canvas-area" aria-label="Page preview">
-          {selectedPage && draft ? (
-            <ScrapbookPagePreview key={book.id + "-" + selectedPage.id} book={book} draft={draft} linkedMemory={linkedMemory} photoUrls={photoUrls[selectedPage.id] ?? {}} previewTrack={previewTrack} scrapbookId={book.id} pageId={selectedPage.id} legacyDecorationIds={selectedPage.decorationIds ?? []} pendingDecorationId={pendingDecorationId} onDecorationPlaced={() => { setPendingDecorationId(null); setNotice("Keepsake placed. Drag it into the perfect spot if you want to tweak it."); }} onCancelPlacement={() => setPendingDecorationId(null)} />
-          ) : (
-            <div className="scrapbook-canvas-empty">
-              <span><BookOpen size={25} /></span>
-              <h2 className="serif">Your story starts on the next page.</h2>
-              <p>Choose a layout and a page will unfold here. You can save its paper, writing, and memory link.</p>
-              <button className="button-primary" disabled={pending === "create"} onClick={() => void addPage()} type="button"><Plus size={16} /> Create the first page</button>
-            </div>
-          )}
-        </section>
+          <section className="scrapbook-canvas-area" aria-label="Page preview">
+            {selectedPage && draft ? (
+              <ScrapbookPagePreview key={book.id + "-" + selectedPage.id} book={book} draft={draft} linkedMemory={linkedMemory} photoUrls={photoUrls[selectedPage.id] ?? {}} previewTrack={previewTrack} scrapbookId={book.id} pageId={selectedPage.id} legacyDecorationIds={selectedPage.decorationIds ?? []} pendingDecorationId={pendingDecorationId} onDecorationPlaced={() => { setPendingDecorationId(null); setNotice("Keepsake placed. Drag it into the perfect spot if you want to tweak it."); }} onCancelPlacement={() => setPendingDecorationId(null)} />
+            ) : (
+              <div className="scrapbook-canvas-empty">
+                <span><BookOpen size={25} /></span>
+                <h2 className="serif">Your story starts on the next page.</h2>
+                <p>Choose a layout and a page will unfold here. You can save its paper, writing, and memory link.</p>
+                <button className="button-primary" disabled={pending === "create"} onClick={() => void addPage()} type="button"><Plus size={16} /> Create the first page</button>
+              </div>
+            )}
+          </section>
+        </div>
 
         <aside className="scrapbook-page-controls" aria-label="Page details">
           {selectedPage && draft ? (
             <>
-              <div className="scrapbook-controls-heading"><span className="eyebrow">Make it yours</span><h2 className="serif">Page details</h2></div>
-              <label className="memory-field"><span>Page title</span><input maxLength={80} onChange={(event) => updateDraft("title", event.target.value)} value={draft.title} /></label>
-              <label className="memory-field"><span>Page layout</span><select onChange={(event) => updateDraft("layout", event.target.value as ScrapbookLayout)} value={draft.layout}>{scrapbookLayoutValues.map((layout) => <option key={layout} value={layout}>{scrapbookLayoutLabels[layout]}</option>)}</select></label>
-              <label className="memory-field"><span>Paper</span><select onChange={(event) => updateDraft("paper", event.target.value as ScrapbookPaper)} value={draft.paper}>{scrapbookPaperValues.map((paper) => <option key={paper} value={paper}>{scrapbookPaperLabels[paper]}</option>)}</select></label>
-              <label className="memory-field"><span>Page vibe</span><select onChange={(event) => updateDraft("vibe", event.target.value as ScrapbookVibe)} value={draft.vibe}>{scrapbookVibeValues.map((vibe) => <option key={vibe} value={vibe}>{scrapbookVibeLabels[vibe]}</option>)}</select></label>
-              <StationeryPicker
-                onAddDecoration={addDecoration}
-                pendingDecorationId={pendingDecorationId}
-                onCancelPlacement={() => setPendingDecorationId(null)}
-                onTapeChange={(value) => updateDraft("tapeId", value)}
-                onTextureChange={(value) => updateDraft("textureId", value)}
-                tapeId={draft.tapeId}
-                textureId={draft.textureId}
-              />
-              <details className="scrapbook-control-foldout">
-                <summary>Story note & memory link</summary>
-                <div className="scrapbook-control-foldout-content">
+              <div className="scrapbook-controls-heading">
+                <div><span className="eyebrow">One page at a time</span><h2 className="serif">Make it yours</h2></div>
+                <span className={`scrapbook-save-state${dirty ? " is-dirty" : ""}`}>{dirty ? "Unsaved" : "Saved"}</span>
+              </div>
+              <div className="scrapbook-control-tabs" role="group" aria-label="Choose what to edit">
+                <button aria-controls="scrapbook-control-content" aria-pressed={controlSection === "page"} className={controlSection === "page" ? "active" : ""} onClick={() => setControlSection("page")} type="button"><PencilLine size={15} /><span>Page</span></button>
+                <button aria-controls="scrapbook-control-content" aria-pressed={controlSection === "story"} className={controlSection === "story" ? "active" : ""} onClick={() => setControlSection("story")} type="button"><BookOpen size={15} /><span>Story</span></button>
+                <button aria-controls="scrapbook-control-content" aria-pressed={controlSection === "photos"} className={controlSection === "photos" ? "active" : ""} onClick={() => setControlSection("photos")} type="button"><Images size={15} /><span>Photos</span><small>{draft.photos.length}/3</small></button>
+              </div>
+              <div className="scrapbook-control-content" id="scrapbook-control-content">
+                {controlSection === "page" && <div className="scrapbook-control-section" role="group" aria-label="Page design">
+                  <label className="memory-field"><span>Page title</span><input maxLength={80} onChange={(event) => updateDraft("title", event.target.value)} value={draft.title} /></label>
+                  <label className="memory-field"><span>Page layout</span><select onChange={(event) => updateDraft("layout", event.target.value as ScrapbookLayout)} value={draft.layout}>{scrapbookLayoutValues.map((layout) => <option key={layout} value={layout}>{scrapbookLayoutLabels[layout]}</option>)}</select></label>
+                  <label className="memory-field"><span>Paper</span><select onChange={(event) => updateDraft("paper", event.target.value as ScrapbookPaper)} value={draft.paper}>{scrapbookPaperValues.map((paper) => <option key={paper} value={paper}>{scrapbookPaperLabels[paper]}</option>)}</select></label>
+                  <label className="memory-field"><span>Page vibe</span><select onChange={(event) => updateDraft("vibe", event.target.value as ScrapbookVibe)} value={draft.vibe}>{scrapbookVibeValues.map((vibe) => <option key={vibe} value={vibe}>{scrapbookVibeLabels[vibe]}</option>)}</select></label>
+                  <StationeryPicker
+                    onAddDecoration={addDecoration}
+                    pendingDecorationId={pendingDecorationId}
+                    onCancelPlacement={() => setPendingDecorationId(null)}
+                    onTapeChange={(value) => updateDraft("tapeId", value)}
+                    onTextureChange={(value) => updateDraft("textureId", value)}
+                    tapeId={draft.tapeId}
+                    textureId={draft.textureId}
+                  />
+                </div>}
+
+                {controlSection === "story" && <div className="scrapbook-control-section" role="group" aria-label="Story details">
                   <label className="memory-field"><span>Link a memory</span><select onChange={(event) => updateDraft("memoryId", event.target.value)} value={draft.memoryId}><option value="">No memory linked</option>{memories.map((memory) => <option key={memory.id} value={memory.id}>{memory.title}</option>)}</select></label>
                   {memories.length === 0 && <p className="scrapbook-field-note">Save a memory first, then you can link it here. <Link href="/memories">Open Memories</Link></p>}
                   <label className="memory-field"><span>Write a little caption</span><textarea maxLength={1600} onChange={(event) => updateDraft("caption", event.target.value)} placeholder="A few words about this page…" rows={5} value={draft.caption} /></label>
-                </div>
-              </details>
-              <details className="scrapbook-control-foldout" open={Boolean(draft.track)}>
-                <summary>Soundtrack {draft.track ? "· Added" : "· Optional"}</summary>
-                <section className="scrapbook-track-tools" aria-labelledby="scrapbook-track-heading">
-                <div className="scrapbook-track-heading"><span className="eyebrow">A little soundtrack</span><h3 className="serif" id="scrapbook-track-heading">A song for this page</h3></div>
-                {draft.track ? (
-                  <>
-                    <label className="memory-field"><span>Song title</span><input maxLength={120} onChange={(event) => updateTrack("title", event.target.value)} placeholder="The song from that day" value={draft.track.title} /></label>
-                    <label className="memory-field"><span>Artist</span><input maxLength={120} onChange={(event) => updateTrack("artist", event.target.value)} placeholder="Artist name" value={draft.track.artist} /></label>
-                    <label className="memory-field"><span>Song link</span><input maxLength={500} onChange={(event) => updateTrack("url", event.target.value)} placeholder="https://open.spotify.com/..." type="url" value={draft.track.url} /></label>
-                    <label className="memory-field"><span>Why it belongs here</span><input maxLength={500} onChange={(event) => updateTrack("note", event.target.value)} placeholder="It played all the way home…" value={draft.track.note} /></label>
-                    <button className="scrapbook-track-remove" onClick={() => updateDraft("track", null)} type="button">Remove song</button>
-                  </>
-                ) : (
-                  <>
-                    <p className="scrapbook-field-note">Add a link from Spotify, Apple Music, YouTube Music, or SoundCloud. Solace won’t store or play the song itself.</p>
-                    <button className="button-secondary scrapbook-track-add" onClick={() => updateDraft("track", { title: "", artist: "", url: "", note: "" })} type="button"><Music2 size={15} /> Add a song link</button>
-                  </>
-                )}
-                </section>
-              </details>
-              <details className="scrapbook-control-foldout" open={draft.photos.length > 0}>
-                <summary>Photos · {draft.photos.length}/3</summary>
-                <div className="scrapbook-photo-tools">
-                <input
-                  accept="image/jpeg,image/png,image/webp"
-                  aria-label="Choose a scrapbook photo"
-                  className="scrapbook-file-input"
-                  disabled={pending === "upload" || draft.photos.length >= 3}
-                  onChange={(event) => void uploadPhoto(event)}
-                  ref={photoInputRef}
-                  type="file"
-                />
-                <button
-                  className="button-secondary scrapbook-upload-button"
-                  disabled={pending === "upload" || draft.photos.length >= 3}
-                  onClick={() => photoInputRef.current?.click()}
-                  type="button"
-                >
-                  {pending === "upload" ? <LoaderCircle className="memory-spinner" size={15} /> : <ImagePlus size={15} />}
-                  {pending === "upload" ? "Adding photo…" : "Add a photo"}
-                </button>
-                <span>{draft.photos.length}/3 photos · JPG, PNG, WebP up to 8 MB</span>
-                </div>
-              {photoLoadingError && <p className="memory-error" role="alert">{photoLoadingError}</p>}
-              {draft.photos.length > 0 && (
-                <div className="scrapbook-photo-list" aria-label="Photos on this page">
-                  {draft.photos.map((photo, index) => (
-                    <div className="scrapbook-photo-item" key={photo.publicId}>
-                      {photoUrls[selectedPage.id]?.[photo.publicId] ? (
-                        <Image
-                          alt={`Photo ${index + 1} on ${draft.title}`}
-                          className="scrapbook-photo-thumb"
-                          height={54}
-                          src={photoUrls[selectedPage.id][photo.publicId]}
-                          unoptimized
-                          width={54}
-                        />
-                      ) : <span className="scrapbook-photo-thumb-loading"><Images size={15} /></span>}
+                  <details className="scrapbook-control-foldout scrapbook-soundtrack-foldout" open={Boolean(draft.track)}>
+                    <summary>Soundtrack {draft.track ? "· Added" : "· Optional"}</summary>
+                    <section className="scrapbook-track-tools" aria-labelledby="scrapbook-track-heading">
+                      <div className="scrapbook-track-heading"><span className="eyebrow">A little soundtrack</span><h3 className="serif" id="scrapbook-track-heading">A song for this page</h3></div>
+                      {draft.track ? <>
+                        <label className="memory-field"><span>Song title</span><input maxLength={120} onChange={(event) => updateTrack("title", event.target.value)} placeholder="The song from that day" value={draft.track.title} /></label>
+                        <label className="memory-field"><span>Artist</span><input maxLength={120} onChange={(event) => updateTrack("artist", event.target.value)} placeholder="Artist name" value={draft.track.artist} /></label>
+                        <label className="memory-field"><span>Song link</span><input maxLength={500} onChange={(event) => updateTrack("url", event.target.value)} placeholder="https://open.spotify.com/..." type="url" value={draft.track.url} /></label>
+                        <label className="memory-field"><span>Why it belongs here</span><input maxLength={500} onChange={(event) => updateTrack("note", event.target.value)} placeholder="It played all the way home…" value={draft.track.note} /></label>
+                        <button className="scrapbook-track-remove" onClick={() => updateDraft("track", null)} type="button">Remove song</button>
+                      </> : <>
+                        <p className="scrapbook-field-note">Add a link from Spotify, Apple Music, YouTube Music, or SoundCloud. Solace won’t store or play the song itself.</p>
+                        <button className="button-secondary scrapbook-track-add" onClick={() => updateDraft("track", { title: "", artist: "", url: "", note: "" })} type="button"><Music2 size={15} /> Add a song link</button>
+                      </>}
+                    </section>
+                  </details>
+                </div>}
+
+                {controlSection === "photos" && <div className="scrapbook-control-section" role="group" aria-label="Page photos">
+                  <div className="scrapbook-photo-tools">
+                    <input
+                      accept="image/jpeg,image/png,image/webp"
+                      aria-label="Choose a scrapbook photo"
+                      className="scrapbook-file-input"
+                      disabled={pending === "upload" || draft.photos.length >= 3}
+                      onChange={(event) => void uploadPhoto(event)}
+                      ref={photoInputRef}
+                      type="file"
+                    />
+                    <button
+                      className="button-secondary scrapbook-upload-button"
+                      disabled={pending === "upload" || draft.photos.length >= 3}
+                      onClick={() => photoInputRef.current?.click()}
+                      type="button"
+                    >
+                      {pending === "upload" ? <LoaderCircle className="memory-spinner" size={15} /> : <ImagePlus size={15} />}
+                      {pending === "upload" ? "Adding photo…" : "Add a photo"}
+                    </button>
+                    <span>{draft.photos.length}/3 photos · JPG, PNG, WebP up to 8 MB</span>
+                  </div>
+                  {photoLoadingError && <p className="memory-error" role="alert">{photoLoadingError}</p>}
+                  {draft.photos.length > 0 && <div className="scrapbook-photo-list" aria-label="Photos on this page">
+                    {draft.photos.map((photo, index) => <div className="scrapbook-photo-item" key={photo.publicId}>
+                      {photoUrls[selectedPage.id]?.[photo.publicId] ? <Image alt={`Photo ${index + 1} on ${draft.title}`} className="scrapbook-photo-thumb" height={54} src={photoUrls[selectedPage.id][photo.publicId]} unoptimized width={54} /> : <span className="scrapbook-photo-thumb-loading"><Images size={15} /></span>}
                       <span>Photo {index + 1}</span>
                       <button aria-label={`Remove photo ${index + 1}`} className="scrapbook-photo-remove" disabled={pending === "remove"} onClick={() => void removePhoto(photo)} type="button"><Trash2 size={13} /></button>
-                    </div>
-                  ))}
-                </div>
-              )}
-                <div className="scrapbook-photo-note"><Images size={15} /><span>Photos are private and load only for the scrapbook owner.</span></div>
-              </details>
-              <button className="button-primary scrapbook-save-page" disabled={pending === "save" || !dirty} onClick={() => void savePage()} type="button">
-                {pending === "save" ? <LoaderCircle className="memory-spinner" size={16} /> : dirty ? <Save size={16} /> : <Check size={16} />}
-                {pending === "save" ? "Saving page…" : dirty ? "Save this page" : "All changes saved"}
-              </button>
-              <button className="scrapbook-delete-page" disabled={pending !== null} onClick={() => setDeletePageOpen(true)} type="button"><Trash2 size={14} /> Delete this page</button>
+                    </div>)}
+                  </div>}
+                  <div className="scrapbook-photo-note"><Images size={15} /><span>Photos stay private and load only for you.</span></div>
+                </div>}
+              </div>
+              <div className="scrapbook-controls-actions">
+                <button className="button-primary scrapbook-save-page" disabled={pending === "save" || !dirty} onClick={() => void savePage()} type="button">
+                  {pending === "save" ? <LoaderCircle className="memory-spinner" size={16} /> : dirty ? <Save size={16} /> : <Check size={16} />}
+                  {pending === "save" ? "Saving page…" : dirty ? "Save this page" : "All changes saved"}
+                </button>
+                <button className="scrapbook-delete-page" disabled={pending !== null} onClick={() => setDeletePageOpen(true)} type="button"><Trash2 size={14} /> Delete this page</button>
+              </div>
             </>
           ) : (
             <div className="scrapbook-controls-empty"><Sparkles size={20} /><h2 className="serif">Ready when you are.</h2><p>Add a page to choose a layout, paper, and caption.</p></div>

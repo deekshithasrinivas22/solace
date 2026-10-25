@@ -135,6 +135,7 @@ export function JournalStudio() {
   const [searchText, setSearchText] = useState("");
   const [tagText, setTagText] = useState("");
   const [checklistText, setChecklistText] = useState("");
+  const [activePageTool, setActivePageTool] = useState<"postit" | "checklist" | "reminder" | null>(null);
   const [promptIndex, setPromptIndex] = useState(0);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [error, setError] = useState("");
@@ -290,6 +291,7 @@ export function JournalStudio() {
     setPreview(false);
     setPendingDecorationId(null);
     setChecklistText("");
+    setActivePageTool(null);
     setDeleteConfirm(false);
     setError("");
     setNotice("");
@@ -319,6 +321,7 @@ export function JournalStudio() {
     setPreview(false);
     setPendingDecorationId(null);
     setChecklistText("");
+    setActivePageTool(null);
     setDeleteConfirm(false);
     setError("");
     setNotice("");
@@ -730,65 +733,135 @@ export function JournalStudio() {
               <span>Basic Markdown formatting</span>
               <button className="journal-preview-toggle" aria-pressed={preview} onClick={() => setPreview((current) => !current)} type="button">{preview ? <PenLine size={15} /> : <Eye size={15} />}{preview ? "Write" : "Preview"}</button>
             </div>}
-            <div className={"journal-writing-surface" + (mindUnload ? " journal-writing-surface-unload" : "")}>
-              {!mindUnload && <>
-                <StationeryDecorationLayer tapeId={draft.tapeId} textureId={draft.textureId} />
-                <StationeryPageDecorations
-                  key={selectedEntryId ?? "new-journal-entry"}
-                  disabled={!selectedEntryId}
-                  legacyDecorationIds={selectedEntry?.decorationIds ?? []}
-                  onPlaced={() => { setPendingDecorationId(null); setNotice("Your keepsake is in place."); }}
-                  onCancelPlacement={() => setPendingDecorationId(null)}
-                  pendingAssetId={pendingDecorationId}
-                  target={selectedEntryId ? { kind: "journal-entry", entryId: selectedEntryId } : null}
-                />
-              </>}
-              {!mindUnload && draft.postItText.trim() && <aside className={"journal-postit-preview " + draft.postItColor}>
-                <span><Quote size={12} /> Post-it</span>
-                <p>{draft.postItText}</p>
-              </aside>}
-              {preview && !mindUnload ? (
-                <div className="journal-markdown-preview" aria-label="Writing preview">{markdownPreview(draft.body)}</div>
-              ) : (
-                <textarea
-                  autoCapitalize="sentences"
-                  autoCorrect="on"
-                  autoFocus={mindUnload}
-                  className="journal-body-input"
-                  maxLength={12000}
-                  onChange={(event) => setDraftValue("body", event.target.value)}
-                  placeholder={mindUnload ? "Start wherever your mind is. No title, no mood, no tidy ending needed." : "What happened today? What did it feel like from the inside?"}
-                  ref={bodyRef}
-                  value={draft.body}
-                  spellCheck
-                />
-              )}
-              <div className="journal-writing-footer">
-                <span>{mindUnload ? "This space belongs only to you." : "Private by default"}</span>
-                <span>{draft.body.length.toLocaleString()} / 12,000</span>
+            <div className="journal-compose-layout">
+              <div className="journal-compose-main">
+                <div className={"journal-writing-surface" + (mindUnload ? " journal-writing-surface-unload" : "")}>
+                  {!mindUnload && <>
+                    <StationeryDecorationLayer tapeId={draft.tapeId} textureId={draft.textureId} />
+                    <StationeryPageDecorations
+                      key={selectedEntryId ?? "new-journal-entry"}
+                      disabled={!selectedEntryId}
+                      legacyDecorationIds={selectedEntry?.decorationIds ?? []}
+                      onPlaced={() => { setPendingDecorationId(null); setNotice("Your keepsake is in place."); }}
+                      onCancelPlacement={() => setPendingDecorationId(null)}
+                      pendingAssetId={pendingDecorationId}
+                      target={selectedEntryId ? { kind: "journal-entry", entryId: selectedEntryId } : null}
+                    />
+                  </>}
+                  {!mindUnload && draft.postItText.trim() && <aside className={"journal-postit-preview " + draft.postItColor}>
+                    <span><Quote size={12} /> Post-it</span>
+                    <p>{draft.postItText}</p>
+                  </aside>}
+                  {preview && !mindUnload ? (
+                    <div className="journal-markdown-preview" aria-label="Writing preview">{markdownPreview(draft.body)}</div>
+                  ) : (
+                    <textarea
+                      autoCapitalize="sentences"
+                      autoCorrect="on"
+                      autoFocus={mindUnload}
+                      className="journal-body-input"
+                      maxLength={12000}
+                      onChange={(event) => setDraftValue("body", event.target.value)}
+                      placeholder={mindUnload ? "Start wherever your mind is. No title, no mood, no tidy ending needed." : "What happened today? What did it feel like from the inside?"}
+                      ref={bodyRef}
+                      value={draft.body}
+                      spellCheck
+                    />
+                  )}
+                  <div className="journal-writing-footer">
+                    <span>{mindUnload ? "This space belongs only to you." : "Private by default"}</span>
+                    <span>{draft.body.length.toLocaleString()} / 12,000</span>
+                  </div>
+                </div>
+                {entryPhotos.length > 0 && selectedEntryId && <div className="journal-photos-strip" aria-label="Photos attached to this entry">
+                  {entryPhotos.map((photo, index) => <div className="journal-photo-thumb" key={photo.publicId}>
+                    <Image
+                      alt={"Photo attached to journal entry, " + String(index + 1)}
+                      height={110}
+                      src={"/api/journal/photos?" + new URLSearchParams({ entryId: selectedEntryId, publicId: photo.publicId }).toString()}
+                      unoptimized
+                      width={140}
+                    />
+                    <button aria-label={"Remove attached photo " + String(index + 1)} disabled={photoPending} onClick={() => void removePhoto(photo)} type="button"><Trash2 size={13} /></button>
+                  </div>)}
+                </div>}
               </div>
+
+              {!mindUnload && <aside className="journal-tool-rail" aria-label="Optional journal page tools">
+                <div className="journal-tool-rail-heading">
+                  <span className="journal-tool-rail-sparkle"><Sparkles size={17} /></span>
+                  <div><strong>Little extras</strong><p>Choose only what this page needs.</p></div>
+                </div>
+                <div className="journal-tool-choices" role="group" aria-label="Choose an optional journal tool">
+                  <button aria-pressed={activePageTool === "postit"} className={"journal-tool-choice" + (activePageTool === "postit" ? " active" : "")} onClick={() => setActivePageTool((current) => current === "postit" ? null : "postit")} type="button">
+                    <Quote size={17} /><span>Post-it</span>{draft.postItText.trim() && <small>Added</small>}
+                  </button>
+                  <button aria-pressed={activePageTool === "checklist"} className={"journal-tool-choice" + (activePageTool === "checklist" ? " active" : "")} onClick={() => setActivePageTool((current) => current === "checklist" ? null : "checklist")} type="button">
+                    <List size={17} /><span>Checklist</span>{draft.checklistItems.length > 0 && <small>{draft.checklistItems.length}</small>}
+                  </button>
+                  <button aria-pressed={activePageTool === "reminder"} className={"journal-tool-choice" + (activePageTool === "reminder" ? " active" : "")} onClick={() => setActivePageTool((current) => current === "reminder" ? null : "reminder")} type="button">
+                    <Bell size={17} /><span>Reminder</span>{draft.reminderDate && <small>Set</small>}
+                  </button>
+                </div>
+
+                {!activePageTool && <div className="journal-tool-empty"><Sparkles size={16} /><p>Your words stay center stage. Tap a tool to add a little extra.</p></div>}
+
+                {activePageTool === "postit" && <section className="journal-tool-card journal-postit-card" aria-labelledby="journal-postit-heading">
+                  <div className="journal-tool-heading"><Quote size={16} /><div><h3 id="journal-postit-heading">A note to keep close</h3><p>It appears like a small paper note on your page.</p></div></div>
+                  <label className="sr-only" htmlFor="journal-postit">Post-it note</label>
+                  <textarea id="journal-postit" maxLength={500} onChange={(event) => setDraftValue("postItText", event.target.value)} placeholder="Leave yourself a note…" rows={4} value={draft.postItText} />
+                  <div className="journal-postit-colors" role="group" aria-label="Post-it color">
+                    {([
+                      { id: "butter", label: "Butter yellow" },
+                      { id: "pink", label: "Petal pink" },
+                      { id: "blue", label: "Sky blue" },
+                      { id: "mint", label: "Mint" },
+                      { id: "lilac", label: "Lilac" },
+                    ] as const).map((color) => <button
+                      aria-label={color.label}
+                      aria-pressed={draft.postItColor === color.id}
+                      className={"journal-postit-color " + color.id + (draft.postItColor === color.id ? " selected" : "")}
+                      key={color.id}
+                      onClick={() => setDraftValue("postItColor", color.id)}
+                      title={color.label}
+                      type="button"
+                    />)}
+                  </div>
+                </section>}
+
+                {activePageTool === "checklist" && <section className="journal-tool-card journal-checklist-card" aria-labelledby="journal-checklist-heading">
+                  <div className="journal-tool-heading"><List size={16} /><div><h3 id="journal-checklist-heading">Little checklist</h3><p>Make a small plan for yourself.</p></div></div>
+                  {draft.checklistItems.length > 0 && <ul className="journal-checklist">
+                    {draft.checklistItems.map((item, index) => <li key={index}>
+                      <input aria-label={"Mark " + (item || "checklist item") + " complete"} checked={draft.checklistChecked[index] ?? false} onChange={(event) => toggleChecklistItem(index, event.target.checked)} type="checkbox" />
+                      <input aria-label={"Checklist item " + String(index + 1)} maxLength={160} onBlur={(event) => {
+                        const trimmed = event.currentTarget.value.trim();
+                        if (!trimmed) removeChecklistItem(index);
+                        else if (trimmed !== item) updateChecklistItem(index, trimmed);
+                      }} onChange={(event) => updateChecklistItem(index, event.target.value)} value={item} />
+                      <button aria-label={"Remove checklist item " + String(index + 1)} onClick={() => removeChecklistItem(index)} type="button"><X size={14} /></button>
+                    </li>)}
+                  </ul>}
+                  <div className="journal-checklist-add">
+                    <input aria-label="New checklist item" maxLength={160} onChange={(event) => setChecklistText(event.target.value)} onKeyDown={(event) => {
+                      if (event.key === "Enter") { event.preventDefault(); addChecklistItem(); }
+                    }} placeholder="Add one small thing…" value={checklistText} />
+                    <button aria-label="Add checklist item" disabled={!checklistText.trim() || draft.checklistItems.length >= 12} onClick={addChecklistItem} type="button"><Plus size={16} /></button>
+                  </div>
+                  <p className="journal-tool-caption">{draft.checklistItems.filter((_, index) => draft.checklistChecked[index]).length} of {draft.checklistItems.length} done</p>
+                </section>}
+
+                {activePageTool === "reminder" && <section className="journal-tool-card journal-reminder-card" aria-labelledby="journal-reminder-heading">
+                  <div className="journal-tool-heading"><Bell size={16} /><div><h3 id="journal-reminder-heading">Remind me</h3><p>Pin this page to a day on your journal calendar.</p></div></div>
+                  <label htmlFor="journal-reminder-date">Choose a date</label>
+                  <div className="journal-reminder-input">
+                    <input id="journal-reminder-date" max="9999-12-31" onChange={(event) => setDraftValue("reminderDate", event.target.value)} type="date" value={draft.reminderDate} />
+                    {draft.reminderDate && <button aria-label="Clear reminder date" onClick={() => setDraftValue("reminderDate", "")} type="button"><X size={14} /></button>}
+                  </div>
+                  <p className="journal-tool-caption">Your reminder is saved with this page and shown in its calendar.</p>
+                </section>}
+              </aside>}
             </div>
-
-            {!mindUnload && draft.checklistItems.length > 0 && <section className="journal-checklist-preview" aria-label="Journal checklist">
-              <div><List size={15} /><strong>Little checklist</strong><span>{draft.checklistItems.filter((_, index) => draft.checklistChecked[index]).length}/{draft.checklistItems.length}</span></div>
-              <ul>{draft.checklistItems.map((item, index) => <li key={index}>
-                <input aria-label={"Mark " + item + " complete"} checked={draft.checklistChecked[index] ?? false} onChange={(event) => toggleChecklistItem(index, event.target.checked)} type="checkbox" />
-                <span>{item}</span>
-              </li>)}</ul>
-            </section>}
-            {entryPhotos.length > 0 && selectedEntryId && <div className="journal-photos-strip" aria-label="Photos attached to this entry">
-              {entryPhotos.map((photo, index) => <div className="journal-photo-thumb" key={photo.publicId}>
-                <Image
-                  alt={"Photo attached to journal entry, " + String(index + 1)}
-                  height={110}
-                  src={"/api/journal/photos?" + new URLSearchParams({ entryId: selectedEntryId, publicId: photo.publicId }).toString()}
-                  unoptimized
-                  width={140}
-                />
-                <button aria-label={"Remove attached photo " + String(index + 1)} disabled={photoPending} onClick={() => void removePhoto(photo)} type="button"><Trash2 size={13} /></button>
-              </div>)}
-            </div>}
-
             {!mindUnload && <details className="journal-keepsakes">
               <summary><Images size={15} /> Optional keepsakes <span>Photos and paper touches, if you want them</span></summary>
               <div className="journal-keepsakes-content">
@@ -818,66 +891,6 @@ export function JournalStudio() {
                   tapeId={draft.tapeId}
                   textureId={draft.textureId}
                 />
-              </div>
-            </details>}
-
-            {!mindUnload && <details className="journal-tools">
-              <summary><Sparkles size={16} /> Add a Post-it, checklist or reminder <span>Optional page extras</span></summary>
-              <div className="journal-tools-grid">
-                <section className="journal-tool-card journal-postit-card">
-                  <div className="journal-tool-heading"><Quote size={16} /><div><h3>Post-it</h3><p>A little thought to keep in view.</p></div></div>
-                  <label className="sr-only" htmlFor="journal-postit">Post-it note</label>
-                  <textarea id="journal-postit" maxLength={500} onChange={(event) => setDraftValue("postItText", event.target.value)} placeholder="Leave yourself a note…" rows={4} value={draft.postItText} />
-                  <div className="journal-postit-colors" role="group" aria-label="Post-it color">
-                    {([
-                      { id: "butter", label: "Butter yellow" },
-                      { id: "pink", label: "Petal pink" },
-                      { id: "blue", label: "Sky blue" },
-                      { id: "mint", label: "Mint" },
-                      { id: "lilac", label: "Lilac" },
-                    ] as const).map((color) => <button
-                      aria-label={color.label}
-                      aria-pressed={draft.postItColor === color.id}
-                      className={"journal-postit-color " + color.id + (draft.postItColor === color.id ? " selected" : "")}
-                      key={color.id}
-                      onClick={() => setDraftValue("postItColor", color.id)}
-                      title={color.label}
-                      type="button"
-                    />)}
-                  </div>
-                </section>
-
-                <section className="journal-tool-card journal-checklist-card">
-                  <div className="journal-tool-heading"><List size={16} /><div><h3>Little checklist</h3><p>Make a small plan for yourself.</p></div></div>
-                  {draft.checklistItems.length > 0 && <ul className="journal-checklist">
-                    {draft.checklistItems.map((item, index) => <li key={index}>
-                      <input aria-label={"Mark " + (item || "checklist item") + " complete"} checked={draft.checklistChecked[index] ?? false} onChange={(event) => toggleChecklistItem(index, event.target.checked)} type="checkbox" />
-                      <input aria-label={"Checklist item " + String(index + 1)} maxLength={160} onBlur={(event) => {
-                        const trimmed = event.currentTarget.value.trim();
-                        if (!trimmed) removeChecklistItem(index);
-                        else if (trimmed !== item) updateChecklistItem(index, trimmed);
-                      }} onChange={(event) => updateChecklistItem(index, event.target.value)} value={item} />
-                      <button aria-label={"Remove checklist item " + String(index + 1)} onClick={() => removeChecklistItem(index)} type="button"><X size={14} /></button>
-                    </li>)}
-                  </ul>}
-                  <div className="journal-checklist-add">
-                    <input aria-label="New checklist item" maxLength={160} onChange={(event) => setChecklistText(event.target.value)} onKeyDown={(event) => {
-                      if (event.key === "Enter") { event.preventDefault(); addChecklistItem(); }
-                    }} placeholder="Add one small thing…" value={checklistText} />
-                    <button aria-label="Add checklist item" disabled={!checklistText.trim() || draft.checklistItems.length >= 12} onClick={addChecklistItem} type="button"><Plus size={16} /></button>
-                  </div>
-                  <p className="journal-tool-caption">{draft.checklistItems.filter((_, index) => draft.checklistChecked[index]).length} of {draft.checklistItems.length} done</p>
-                </section>
-
-                <section className="journal-tool-card journal-reminder-card">
-                  <div className="journal-tool-heading"><Bell size={16} /><div><h3>Remind me</h3><p>Pin this page to a day on your journal calendar.</p></div></div>
-                  <label htmlFor="journal-reminder-date">Choose a date</label>
-                  <div className="journal-reminder-input">
-                    <input id="journal-reminder-date" max="9999-12-31" onChange={(event) => setDraftValue("reminderDate", event.target.value)} type="date" value={draft.reminderDate} />
-                    {draft.reminderDate && <button aria-label="Clear reminder date" onClick={() => setDraftValue("reminderDate", "")} type="button"><X size={14} /></button>}
-                  </div>
-                  <p className="journal-tool-caption">The reminder appears in the calendar and this page’s saved details.</p>
-                </section>
               </div>
             </details>}
 

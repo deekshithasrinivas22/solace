@@ -2291,3 +2291,81 @@ body { background: var(--theme-page-bg); color: var(--theme-ink); }
 @media (max-width: 680px) {
   .journal-postit-preview { width: min(100%, 17rem); }
 }
+
+
+/* Keep optional Journal tools beside the writing page and give scrapbook covers room to breathe. */
+.journal-editor { width: min(100%, 1320px); }
+.journal-compose-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(272px, 318px);
+  align-items: start;
+  gap: 1rem;
+}
+.journal-compose-main { min-width: 0; }
+.journal-tool-rail {
+  position: sticky;
+  top: 1rem;
+  display: grid;
+  min-width: 0;
+  align-self: start;
+  gap: 0.8rem;
+  border: 1px solid var(--theme-border);
+  border-radius: 1rem;
+  background: color-mix(in srgb, var(--theme-surface) 94%, white);
+  padding: 0.9rem;
+  box-shadow: 0 10px 26px rgba(74, 49, 96, 0.07);
+}
+.journal-tool-rail-heading { display: flex; align-items: center; gap: 0.6rem; }
+.journal-tool-rail-heading strong { color: var(--theme-ink); font: 1.05rem Georgia, serif; }
+.journal-tool-rail-heading p { margin: 0.18rem 0 0; color: var(--theme-muted); font-size: 0.69rem; line-height: 1.45; }
+.journal-tool-rail-sparkle { display: grid; width: 2.35rem; height: 2.35rem; flex: 0 0 auto; place-items: center; border: 1px solid var(--theme-border); border-radius: 0.75rem; background: var(--theme-soft); color: var(--theme-primary); }
+.journal-tool-choices { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.38rem; }
+.journal-tool-choice {
+  display: grid;
+  min-width: 0;
+  min-height: 4.2rem;
+  justify-items: center;
+  align-content: center;
+  gap: 0.27rem;
+  border: 1px solid var(--theme-border);
+  border-radius: 0.72rem;
+  background: var(--theme-surface);
+  padding: 0.42rem 0.2rem;
+  color: var(--theme-muted);
+  cursor: pointer;
+  font-size: 0.68rem;
+  transition: border-color 160ms ease, background 160ms ease, color 160ms ease, transform 160ms ease;
+}
+.journal-tool-choice:hover { border-color: var(--theme-secondary); color: var(--theme-primary); transform: translateY(-1px); }
+.journal-tool-choice.active { border-color: var(--theme-primary); background: var(--theme-soft); color: var(--theme-primary); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--theme-primary) 15%, transparent); }
+.journal-tool-choice > small { color: var(--theme-muted); font-size: 0.57rem; line-height: 1; }
+.journal-tool-choice:focus-visible { outline: 3px solid color-mix(in srgb, var(--theme-primary) 36%, transparent); outline-offset: 2px; }
+.journal-tool-empty { display: flex; align-items: flex-start; gap: 0.5rem; border: 1px dashed var(--theme-border); border-radius: 0.78rem; background: var(--theme-soft-2); padding: 0.8rem; color: var(--theme-primary); }
+.journal-tool-empty svg { flex: 0 0 auto; margin-top: 0.1rem; }
+.journal-tool-empty p { margin: 0; color: var(--theme-muted); font-size: 0.71rem; line-height: 1.55; }
+.journal-tool-rail .journal-tool-card { gap: 0.7rem; padding: 0.82rem; }
+.journal-tool-rail .journal-tool-heading h3 { font-size: 1.02rem; }
+.journal-tool-rail .journal-tool-heading p { font-size: 0.67rem; }
+.journal-tool-rail .journal-postit-card textarea { min-height: 7rem; }
+.journal-tool-rail .journal-tool-caption { font-size: 0.67rem; line-height: 1.5; }
+.journal-tool-rail .journal-checklist { max-height: 15rem; overflow-y: auto; }
+.scrapbook-grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 350px)); justify-content: start; gap: 1.35rem; }
+.scrapbook-cover-art { min-height: 320px; }
+.scrapbook-cover-title { width: min(88%, 25ch); max-width: min(88%, 25ch); font-size: clamp(1.4rem, 2vw, 1.8rem); overflow-wrap: normal; word-break: normal; }
+@media (max-width: 1020px) {
+  .journal-compose-layout { grid-template-columns: minmax(0, 1fr) minmax(245px, 280px); gap: 0.75rem; }
+  .journal-tool-rail { padding: 0.75rem; }
+}
+@media (max-width: 850px) {
+  .journal-compose-layout { grid-template-columns: minmax(0, 1fr); }
+  .journal-tool-rail { position: static; }
+  .journal-tool-rail .journal-tool-card { max-width: none; }
+}
+@media (max-width: 680px) {
+  .scrapbook-grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr)); gap: 0.9rem; }
+  .scrapbook-cover-art { min-height: 300px; }
+  .journal-tool-choice { min-height: 3.9rem; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .journal-tool-choice { transition-duration: 0.01ms !important; }
+}

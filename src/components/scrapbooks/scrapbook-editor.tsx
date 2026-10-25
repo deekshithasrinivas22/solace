@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent, type FormEvent, type PointerEvent as ReactPointerEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
@@ -30,18 +30,22 @@ import {
   subscribeToScrapbookPages,
   updateScrapbook,
 } from "@/lib/firebase/scrapbooks";
-import { scrapbookInputSchema, scrapbookPageInputSchema } from "@/lib/validations/scrapbook";
+import { scrapbookInputSchema, scrapbookPageInputSchema, scrapbookTrackSchema } from "@/lib/validations/scrapbook";
 import {
   scrapbookCoverLabels,
   scrapbookCoverValues,
   scrapbookLayoutLabels,
+  scrapbookLayoutStyleChoices,
   scrapbookLayoutValues,
   scrapbookPaperLabels,
   scrapbookPaperValues,
+  defaultScrapbookLayoutStyle,
+  defaultScrapbookPhotoPosition,
   type Scrapbook,
   type ScrapbookCover,
   type ScrapbookInput,
   type ScrapbookLayout,
+  type ScrapbookLayoutStyle,
   type ScrapbookPage,
   type ScrapbookPageInput,
   type ScrapbookPhoto,
@@ -58,6 +62,7 @@ function pageInput(page: ScrapbookPage): ScrapbookPageInput {
   return {
     title: page.title,
     layout: page.layout,
+    layoutStyle: page.layoutStyle ?? defaultScrapbookLayoutStyle(page.layout),
     paper: page.paper,
     textureId: page.textureId ?? defaultPaperTexture,
     tapeId: page.tapeId ?? defaultTapeStyle,
@@ -127,7 +132,16 @@ export function ScrapbookEditor({ scrapbookId }: { scrapbookId: string }) {
         setDrafts((current) => {
           const next = { ...current };
           for (const page of nextPages) {
-            if (next[page.id]) next[page.id] = { ...next[page.id], photos: page.photos ?? [] };
+            if (next[page.id]) {
+              const localPhotos = next[page.id].photos;
+              next[page.id] = {
+                ...next[page.id],
+                photos: (page.photos ?? []).map((photo) => {
+                  const localPhoto = localPhotos.find((item) => item.publicId === photo.publicId);
+                  return localPhoto?.position ? { ...photo, position: localPhoto.position } : photo;
+                }),
+              };
+            }
           }
           return next;
         });
@@ -155,7 +169,7 @@ export function ScrapbookEditor({ scrapbookId }: { scrapbookId: string }) {
   const savedInput = selectedPage ? pageInput(selectedPage) : null;
   const dirty = Boolean(draft && savedInput && JSON.stringify(draft) !== JSON.stringify(savedInput));
   const linkedMemory = memories.find((memory) => memory.id === draft?.memoryId) ?? null;
-  const previewTrackResult = draft ? scrapbookPageInputSchema.shape.track.safeParse(draft.track) : null;
+  const previewTrackResult = draft ? scrapbookTrackSchema.safeParse(draft.track) : null;
   const previewTrack = previewTrackResult?.success ? previewTrackResult.data : null;
 
   const activeBookId = book?.id;
@@ -202,6 +216,23 @@ export function ScrapbookEditor({ scrapbookId }: { scrapbookId: string }) {
     setNotice("");
   }
 
+  function updateLayout(layout: ScrapbookLayout) {
+    if (!selectedPage) return;
+    setDrafts((current) => {
+      const base = current[selectedPage.id] ?? pageInput(selectedPage);
+      return {
+        ...current,
+        [selectedPage.id]: { ...base, layout, layoutStyle: defaultScrapbookLayoutStyle(layout) },
+      };
+    });
+    setNotice("");
+  }
+
+  function updatePhotoPosition(publicId: string, position: ScrapbookPhoto["position"]) {
+    if (!selectedPage || !draft || !position) return;
+    updateDraft("photos", draft.photos.map((photo) => photo.publicId === publicId ? { ...photo, position } : photo));
+  }
+
   function updateTrack(key: keyof ScrapbookTrack, value: string) {
     if (!selectedPage) return;
     setDrafts((current) => {
@@ -213,15 +244,11 @@ export function ScrapbookEditor({ scrapbookId }: { scrapbookId: string }) {
   }
 
   async function uploadPhoto(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.currentTarget.files?.[0];
+    const files = Array.from(event.currentTarget.files ?? []);
     event.currentTarget.value = "";
-    if (!file || !book || !selectedPage || !user || !draft) return;
-    if (draft.photos.length >= 3) {
-      setActionError("This page already has three photos. Remove one before adding another.");
-      return;
-    }
-    if (!/^(image\/(jpeg|png|webp))$/.test(file.type) || file.size > 8 * 1024 * 1024) {
-      setActionError("Choose a JPG, PNG, or WebP photo smaller than 8 MB.");
+    if (!files.length || !book || !selectedPage || !user || !draft) return;
+    if (files.some((file) => !/^(image\/(jpeg|png|webp))$/.test(file.type) || file.size > 8 * 1024 * 1024)) {
+      setActionError("Choose JPG, PNG, or WebP photos smaller than 8 MB each.");
       return;
     }
 
@@ -229,26 +256,36 @@ export function ScrapbookEditor({ scrapbookId }: { scrapbookId: string }) {
     setActionError("");
     setPhotoLoadingError("");
     setNotice("");
+    let uploadedCount = 0;
     try {
-      const form = new FormData();
-      form.set("scrapbookId", book.id);
-      form.set("pageId", selectedPage.id);
-      form.set("file", file);
       const idToken = await user.getIdToken();
-      const response = await fetch("/api/auth/session", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${idToken}` },
-        body: form,
-      });
-      const result = await response.json() as { error?: string; photo?: ScrapbookPhoto; url?: string };
-      if (!response.ok || !result.photo || !result.url) throw new Error(result.error ?? "The photo could not be added.");
-      setPhotoUrls((current) => ({
-        ...current,
-        [selectedPage.id]: { ...current[selectedPage.id], [result.photo!.publicId]: result.url! },
-      }));
-      setNotice("Your photo is safely on this page.");
+      for (const file of files) {
+        const form = new FormData();
+        form.set("scrapbookId", book.id);
+        form.set("pageId", selectedPage.id);
+        form.set("file", file);
+        const response = await fetch("/api/auth/session", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${idToken}` },
+          body: form,
+        });
+        const result = await response.json() as { error?: string; photo?: ScrapbookPhoto; url?: string };
+        if (!response.ok || !result.photo || !result.url) throw new Error(result.error ?? `“${file.name}” could not be added.`);
+        setPhotoUrls((current) => ({
+          ...current,
+          [selectedPage.id]: { ...current[selectedPage.id], [result.photo!.publicId]: result.url! },
+        }));
+        setDrafts((current) => {
+          const base = current[selectedPage.id] ?? pageInput(selectedPage);
+          if (base.photos.some((photo) => photo.publicId === result.photo!.publicId)) return current;
+          return { ...current, [selectedPage.id]: { ...base, photos: [...base.photos, result.photo!] } };
+        });
+        uploadedCount += 1;
+      }
+      setNotice(files.length === 1 ? "Your photo is safely on this page." : `${files.length} photos are safely on this page.`);
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : "The photo could not be added. Please try again.");
+      const message = error instanceof Error ? error.message : "The photo could not be added. Please try again.";
+      setActionError(uploadedCount ? `${message} ${uploadedCount} ${uploadedCount === 1 ? "photo is" : "photos are"} already saved.` : message);
     } finally {
       setPending(null);
     }
@@ -294,6 +331,7 @@ export function ScrapbookEditor({ scrapbookId }: { scrapbookId: string }) {
       const pageId = await createScrapbookPage(book.id, {
         title: `Page ${pages.length + 1}`,
         layout: "polaroid",
+        layoutStyle: defaultScrapbookLayoutStyle("polaroid"),
         paper: "cream",
         textureId: defaultPaperTexture,
         tapeId: defaultTapeStyle,
@@ -369,7 +407,9 @@ export function ScrapbookEditor({ scrapbookId }: { scrapbookId: string }) {
     setPending("save");
     setActionError("");
     try {
-      await saveScrapbookPage(book.id, selectedPage.id, parsed.data);
+      const idToken = await user?.getIdToken();
+      if (!idToken) throw new Error("Sign in again before saving this page.");
+      await saveScrapbookPage(book.id, selectedPage.id, parsed.data, idToken);
       setNotice("This page is tucked safely into your scrapbook.");
     } catch (error) {
       setActionError(firestoreError(error));
@@ -439,6 +479,17 @@ export function ScrapbookEditor({ scrapbookId }: { scrapbookId: string }) {
       {notice && <p className="memory-notice" role="status"><Check size={15} /> {notice}</p>}
       {(pageError || actionError) && <p className="memory-error" role="alert">{pageError || actionError}</p>}
 
+      <input
+        accept="image/jpeg,image/png,image/webp"
+        aria-label="Choose scrapbook photos"
+        className="scrapbook-file-input"
+        disabled={pending === "upload"}
+        multiple
+        onChange={(event) => void uploadPhoto(event)}
+        ref={photoInputRef}
+        type="file"
+      />
+
       <div className="scrapbook-editor-layout">
         <div className="scrapbook-canvas-column">
           <aside className="scrapbook-pages-rail" aria-label="Scrapbook pages">
@@ -468,7 +519,7 @@ export function ScrapbookEditor({ scrapbookId }: { scrapbookId: string }) {
 
           <section className="scrapbook-canvas-area" aria-label="Page preview">
             {selectedPage && draft ? (
-              <ScrapbookPagePreview key={book.id + "-" + selectedPage.id} book={book} draft={draft} linkedMemory={linkedMemory} photoUrls={photoUrls[selectedPage.id] ?? {}} previewTrack={previewTrack} scrapbookId={book.id} pageId={selectedPage.id} legacyDecorationIds={selectedPage.decorationIds ?? []} pendingDecorationId={pendingDecorationId} onDecorationPlaced={() => { setPendingDecorationId(null); setNotice("Keepsake placed. Drag it into the perfect spot if you want to tweak it."); }} onCancelPlacement={() => setPendingDecorationId(null)} />
+              <ScrapbookPagePreview key={book.id + "-" + selectedPage.id} book={book} draft={draft} linkedMemory={linkedMemory} photoUrls={photoUrls[selectedPage.id] ?? {}} previewTrack={previewTrack} scrapbookId={book.id} pageId={selectedPage.id} legacyDecorationIds={selectedPage.decorationIds ?? []} pendingDecorationId={pendingDecorationId} onDecorationPlaced={() => { setPendingDecorationId(null); setNotice("Keepsake placed. Drag it into the perfect spot if you want to tweak it."); }} onCancelPlacement={() => setPendingDecorationId(null)} onRequestAddPhoto={() => photoInputRef.current?.click()} onPhotoPositionChange={updatePhotoPosition} onTextChange={(key, value) => updateDraft(key, value)} />
             ) : (
               <div className="scrapbook-canvas-empty">
                 <span><BookOpen size={25} /></span>
@@ -490,12 +541,12 @@ export function ScrapbookEditor({ scrapbookId }: { scrapbookId: string }) {
               <div className="scrapbook-control-tabs" role="group" aria-label="Choose what to edit">
                 <button aria-controls="scrapbook-control-content" aria-pressed={controlSection === "page"} className={controlSection === "page" ? "active" : ""} onClick={() => setControlSection("page")} type="button"><PencilLine size={15} /><span>Page</span></button>
                 <button aria-controls="scrapbook-control-content" aria-pressed={controlSection === "story"} className={controlSection === "story" ? "active" : ""} onClick={() => setControlSection("story")} type="button"><BookOpen size={15} /><span>Story</span></button>
-                <button aria-controls="scrapbook-control-content" aria-pressed={controlSection === "photos"} className={controlSection === "photos" ? "active" : ""} onClick={() => setControlSection("photos")} type="button"><Images size={15} /><span>Photos</span><small>{draft.photos.length}/3</small></button>
+                <button aria-controls="scrapbook-control-content" aria-pressed={controlSection === "photos"} className={controlSection === "photos" ? "active" : ""} onClick={() => setControlSection("photos")} type="button"><Images size={15} /><span>Photos</span><small>{draft.photos.length}</small></button>
               </div>
               <div className="scrapbook-control-content" id="scrapbook-control-content">
                 {controlSection === "page" && <div className="scrapbook-control-section" role="group" aria-label="Page design">
-                  <label className="memory-field"><span>Page title</span><input maxLength={80} onChange={(event) => updateDraft("title", event.target.value)} value={draft.title} /></label>
-                  <label className="memory-field"><span>Page layout</span><select onChange={(event) => updateDraft("layout", event.target.value as ScrapbookLayout)} value={draft.layout}>{scrapbookLayoutValues.map((layout) => <option key={layout} value={layout}>{scrapbookLayoutLabels[layout]}</option>)}</select></label>
+                  <label className="memory-field"><span>Page layout</span><select onChange={(event) => updateLayout(event.target.value as ScrapbookLayout)} value={draft.layout}>{scrapbookLayoutValues.map((layout) => <option key={layout} value={layout}>{scrapbookLayoutLabels[layout]}</option>)}</select></label>
+                  <label className="memory-field"><span>{scrapbookLayoutLabels[draft.layout]} style</span><select onChange={(event) => updateDraft("layoutStyle", event.target.value as ScrapbookLayoutStyle)} value={draft.layoutStyle}>{scrapbookLayoutStyleChoices[draft.layout].map((choice) => <option key={choice.value} value={choice.value}>{choice.label}</option>)}</select></label>
                   <label className="memory-field"><span>Paper</span><select onChange={(event) => updateDraft("paper", event.target.value as ScrapbookPaper)} value={draft.paper}>{scrapbookPaperValues.map((paper) => <option key={paper} value={paper}>{scrapbookPaperLabels[paper]}</option>)}</select></label>
                   <label className="memory-field"><span>Page vibe</span><select onChange={(event) => updateDraft("vibe", event.target.value as ScrapbookVibe)} value={draft.vibe}>{scrapbookVibeValues.map((vibe) => <option key={vibe} value={vibe}>{scrapbookVibeLabels[vibe]}</option>)}</select></label>
                   <StationeryPicker
@@ -512,7 +563,6 @@ export function ScrapbookEditor({ scrapbookId }: { scrapbookId: string }) {
                 {controlSection === "story" && <div className="scrapbook-control-section" role="group" aria-label="Story details">
                   <label className="memory-field"><span>Link a memory</span><select onChange={(event) => updateDraft("memoryId", event.target.value)} value={draft.memoryId}><option value="">No memory linked</option>{memories.map((memory) => <option key={memory.id} value={memory.id}>{memory.title}</option>)}</select></label>
                   {memories.length === 0 && <p className="scrapbook-field-note">Save a memory first, then you can link it here. <Link href="/memories">Open Memories</Link></p>}
-                  <label className="memory-field"><span>Write a little caption</span><textarea maxLength={1600} onChange={(event) => updateDraft("caption", event.target.value)} placeholder="A few words about this page…" rows={5} value={draft.caption} /></label>
                   <details className="scrapbook-control-foldout scrapbook-soundtrack-foldout" open={Boolean(draft.track)}>
                     <summary>Soundtrack {draft.track ? "· Added" : "· Optional"}</summary>
                     <section className="scrapbook-track-tools" aria-labelledby="scrapbook-track-heading">
@@ -533,25 +583,16 @@ export function ScrapbookEditor({ scrapbookId }: { scrapbookId: string }) {
 
                 {controlSection === "photos" && <div className="scrapbook-control-section" role="group" aria-label="Page photos">
                   <div className="scrapbook-photo-tools">
-                    <input
-                      accept="image/jpeg,image/png,image/webp"
-                      aria-label="Choose a scrapbook photo"
-                      className="scrapbook-file-input"
-                      disabled={pending === "upload" || draft.photos.length >= 3}
-                      onChange={(event) => void uploadPhoto(event)}
-                      ref={photoInputRef}
-                      type="file"
-                    />
                     <button
                       className="button-secondary scrapbook-upload-button"
-                      disabled={pending === "upload" || draft.photos.length >= 3}
+                      disabled={pending === "upload"}
                       onClick={() => photoInputRef.current?.click()}
                       type="button"
                     >
                       {pending === "upload" ? <LoaderCircle className="memory-spinner" size={15} /> : <ImagePlus size={15} />}
                       {pending === "upload" ? "Adding photo…" : "Add a photo"}
                     </button>
-                    <span>{draft.photos.length}/3 photos · JPG, PNG, WebP up to 8 MB</span>
+                    <span>{draft.photos.length} {draft.photos.length === 1 ? "photo" : "photos"} · Add as many as you need, up to 8 MB each</span>
                   </div>
                   {photoLoadingError && <p className="memory-error" role="alert">{photoLoadingError}</p>}
                   {draft.photos.length > 0 && <div className="scrapbook-photo-list" aria-label="Photos on this page">
@@ -605,6 +646,9 @@ function ScrapbookPagePreview({
   pendingDecorationId,
   onDecorationPlaced,
   onCancelPlacement,
+  onRequestAddPhoto,
+  onPhotoPositionChange,
+  onTextChange,
 }: {
   book: Scrapbook;
   draft: ScrapbookPageInput;
@@ -617,12 +661,93 @@ function ScrapbookPagePreview({
   pendingDecorationId: DecorationId | null;
   onDecorationPlaced: () => void;
   onCancelPlacement: () => void;
+  onRequestAddPhoto: () => void;
+  onPhotoPositionChange: (publicId: string, position: NonNullable<ScrapbookPhoto["position"]>) => void;
+  onTextChange: (key: "title" | "caption", value: string) => void;
 }) {
-  const slotCount = draft.layout === "filmstrip" ? 3 : draft.layout === "postcard" ? 2 : 1;
+  type DragState = {
+    publicId: string;
+    pointerId: number;
+    pageLeft: number;
+    pageTop: number;
+    pageWidth: number;
+    pageHeight: number;
+    offsetX: number;
+    offsetY: number;
+    frameWidth: number;
+    frameHeight: number;
+  };
+  const dragRef = useRef<DragState | null>(null);
+  const [dragPosition, setDragPosition] = useState<{ publicId: string; x: number; y: number } | null>(null);
+
+  function photoPosition(photo: ScrapbookPhoto, index: number) {
+    return photo.position ?? defaultScrapbookPhotoPosition(draft.layout, index);
+  }
+
+  function beginPhotoDrag(event: ReactPointerEvent<HTMLDivElement>, photo: ScrapbookPhoto, index: number) {
+    if (event.button !== 0) return;
+    const sheet = event.currentTarget.closest<HTMLElement>(".scrapbook-page-sheet");
+    if (!sheet) return;
+    const page = sheet.getBoundingClientRect();
+    const frame = event.currentTarget.getBoundingClientRect();
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    dragRef.current = {
+      publicId: photo.publicId,
+      pointerId: event.pointerId,
+      pageLeft: page.left,
+      pageTop: page.top,
+      pageWidth: page.width,
+      pageHeight: page.height,
+      offsetX: event.clientX - frame.left,
+      offsetY: event.clientY - frame.top,
+      frameWidth: frame.width,
+      frameHeight: frame.height,
+    };
+    const position = photoPosition(photo, index);
+    setDragPosition({ publicId: photo.publicId, ...position });
+  }
+
+  function movePhotoDrag(event: ReactPointerEvent<HTMLDivElement>) {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const x = Math.max(0, Math.min(100, ((event.clientX - drag.pageLeft - drag.offsetX + drag.frameWidth / 2) / drag.pageWidth) * 100));
+    const y = Math.max(0, Math.min(100, ((event.clientY - drag.pageTop - drag.offsetY + drag.frameHeight / 2) / drag.pageHeight) * 100));
+    setDragPosition({ publicId: drag.publicId, x, y });
+  }
+
+  function finishPhotoDrag(event: ReactPointerEvent<HTMLDivElement>) {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const x = Math.max(0, Math.min(100, ((event.clientX - drag.pageLeft - drag.offsetX + drag.frameWidth / 2) / drag.pageWidth) * 100));
+    const y = Math.max(0, Math.min(100, ((event.clientY - drag.pageTop - drag.offsetY + drag.frameHeight / 2) / drag.pageHeight) * 100));
+    onPhotoPositionChange(drag.publicId, { x, y });
+    dragRef.current = null;
+    setDragPosition(null);
+  }
+
+  function nudgePhoto(event: ReactKeyboardEvent<HTMLDivElement>, photo: ScrapbookPhoto, index: number) {
+    const deltas: Record<string, [number, number]> = {
+      ArrowLeft: [-2, 0], ArrowRight: [2, 0], ArrowUp: [0, -2], ArrowDown: [0, 2],
+    };
+    const delta = deltas[event.key];
+    if (!delta) return;
+    event.preventDefault();
+    const position = photoPosition(photo, index);
+    onPhotoPositionChange(photo.publicId, {
+      x: Math.max(0, Math.min(100, position.x + delta[0])),
+      y: Math.max(0, Math.min(100, position.y + delta[1])),
+    });
+  }
+
+  const photoWidth = Math.max(16, Math.min(44, 46 / Math.sqrt(Math.max(1, draft.photos.length))));
   return (
     <div className="scrapbook-page-stage">
-      <div className="scrapbook-stage-caption"><Sparkles size={13} /> A little preview of your page</div>
-      <article className={`scrapbook-page-sheet scrapbook-paper-${draft.paper} scrapbook-layout-sheet-${draft.layout}`}>
+      <div className="scrapbook-stage-toolbar">
+        <div className="scrapbook-stage-caption"><Sparkles size={13} /> Click the title or note to write · Drag photos anywhere</div>
+        <button className="scrapbook-stage-add-photo" onClick={onRequestAddPhoto} type="button"><ImagePlus size={14} /> Add photos</button>
+      </div>
+      <article className={`scrapbook-page-sheet scrapbook-paper-${draft.paper} scrapbook-layout-sheet-${draft.layout} scrapbook-style-${draft.layoutStyle}`}>
         <StationeryDecorationLayer
           tapeId={draft.tapeId}
           textureId={draft.textureId}
@@ -637,28 +762,46 @@ function ScrapbookPagePreview({
         <span className="scrapbook-page-stamp">✦</span>
         <div className="scrapbook-page-content">
         <div className={`scrapbook-photo-arrangement scrapbook-layout-${draft.layout}`}>
-          {Array.from({ length: slotCount }, (_, index) => (
-            <div className="scrapbook-photo-slot" key={index}>
-              {draft.photos[index] && photoUrls[draft.photos[index].publicId] ? (
-                <Image
-                  alt={`Photo ${index + 1} on ${draft.title}`}
-                  className="scrapbook-photo-image"
-                  fill
-                  sizes="(max-width: 760px) 80vw, 45vw"
-                  src={photoUrls[draft.photos[index].publicId]}
-                  unoptimized
-                />
-              ) : (
-                <><Images size={20} strokeWidth={1.35} /><span>{draft.photos[index] ? "Opening photo…" : "Add a photo"}</span></>
-              )}
-            </div>
-          ))}
+          {draft.photos.length === 0 ? (
+            <button className="scrapbook-photo-slot scrapbook-photo-placeholder" onClick={onRequestAddPhoto} type="button">
+              <ImagePlus size={24} strokeWidth={1.35} /><span>Add a photo</span>
+            </button>
+          ) : draft.photos.map((photo, index) => {
+            const position = dragPosition?.publicId === photo.publicId ? dragPosition : photoPosition(photo, index);
+            const rotation = index % 2 === 0 ? -1.6 : 1.8;
+            return (
+              <div
+                aria-label={`Photo ${index + 1} on ${draft.title}. Use arrow keys to move it.`}
+                className={`scrapbook-photo-slot scrapbook-photo-draggable scrapbook-photo-${draft.layout}`}
+                key={photo.publicId}
+                onKeyDown={(event) => nudgePhoto(event, photo, index)}
+                onPointerCancel={finishPhotoDrag}
+                onPointerDown={(event) => beginPhotoDrag(event, photo, index)}
+                onPointerMove={movePhotoDrag}
+                onPointerUp={finishPhotoDrag}
+                role="img"
+                style={{
+                  left: `${position.x}%`,
+                  top: `${position.y}%`,
+                  width: `${photoWidth}%`,
+                  transform: `translate(-50%, -50%) rotate(${rotation}deg)`,
+                }}
+                tabIndex={0}
+              >
+                {photoUrls[photo.publicId] ? (
+                  <Image alt="" className="scrapbook-photo-image" fill sizes="(max-width: 760px) 42vw, 24vw" src={photoUrls[photo.publicId]} unoptimized />
+                ) : (
+                  <><Images size={20} strokeWidth={1.35} /><span>Opening photo…</span></>
+                )}
+              </div>
+            );
+          })}
         </div>
         <div className="scrapbook-page-writing">
           <span className="handwritten">{book.title}</span>
           <span className={"scrapbook-vibe scrapbook-vibe-" + draft.vibe}>{scrapbookVibeLabels[draft.vibe]}</span>
-          <h2 className="serif">{draft.title || "A page to remember"}</h2>
-          <p>{draft.caption || "Your words will find a home here…"}</p>
+          <input aria-label="Page title. Click here to write." className="scrapbook-page-title-input serif" maxLength={80} onChange={(event) => onTextChange("title", event.target.value)} placeholder="A page to remember" value={draft.title} />
+          <textarea aria-label="Page note. Click here to write." className="scrapbook-page-caption-input" maxLength={1600} onChange={(event) => onTextChange("caption", event.target.value)} placeholder="Click here to write your story…" rows={3} value={draft.caption} />
           {linkedMemory && (
             <span className="scrapbook-linked-memory"><MapPin size={12} /> From “{linkedMemory.title}”{linkedMemory.mood ? ` · ${memoryMoodLabels[linkedMemory.mood as MemoryMood]}` : ""}</span>
           )}

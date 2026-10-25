@@ -235,12 +235,19 @@ service cloud.firestore {
           'caption', 'memoryId', 'photos', 'track', 'createdAt', 'updatedAt'
         ])
         && request.resource.data.keys().hasOnly([
-          'title', 'layout', 'paper', 'textureId', 'tapeId', 'vibe', 'decorationIds',
+          'title', 'layout', 'layoutStyle', 'paper', 'textureId', 'tapeId', 'vibe', 'decorationIds',
           'caption', 'memoryId', 'photos', 'track', 'createdAt', 'updatedAt'
         ])
         && request.resource.data.title is string
         && request.resource.data.title.size() <= 80
         && request.resource.data.layout in ['polaroid', 'postcard', 'filmstrip']
+        && (!request.resource.data.keys().hasAny(['layoutStyle'])
+          || (request.resource.data.layout == 'polaroid'
+            && request.resource.data.layoutStyle in ['polaroid-classic', 'polaroid-soft', 'polaroid-color'])
+          || (request.resource.data.layout == 'postcard'
+            && request.resource.data.layoutStyle in ['postcard-vintage', 'postcard-airmail', 'postcard-modern'])
+          || (request.resource.data.layout == 'filmstrip'
+            && request.resource.data.layoutStyle in ['filmstrip-35mm', 'filmstrip-super8', 'filmstrip-color']))
         && request.resource.data.paper in ['cream', 'sage', 'rose', 'night']
         && validStationeryTexture(request.resource.data.textureId)
         && validTapeStyle(request.resource.data.tapeId)

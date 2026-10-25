@@ -103,6 +103,7 @@ export async function createScrapbookPage(scrapbookId: string, input: ScrapbookP
   batch.set(pageRef, {
     title: input.title,
     layout: input.layout,
+    layoutStyle: input.layoutStyle,
     paper: input.paper,
     textureId: input.textureId,
     tapeId: input.tapeId,
@@ -123,22 +124,13 @@ export async function saveScrapbookPage(
   scrapbookId: string,
   pageId: string,
   input: ScrapbookPageInput,
+  idToken: string,
 ) {
-  const database = db();
-  const batch = writeBatch(database);
-  batch.update(doc(database, "scrapbooks", scrapbookId, "pages", pageId), {
-    title: input.title,
-    layout: input.layout,
-    paper: input.paper,
-    textureId: input.textureId,
-    tapeId: input.tapeId,
-    vibe: input.vibe,
-    caption: input.caption,
-    memoryId: input.memoryId,
-    photos: input.photos,
-    track: input.track,
-    updatedAt: serverTimestamp(),
+  const response = await fetch("/api/scrapbooks/pages", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
+    body: JSON.stringify({ scrapbookId, pageId, page: input }),
   });
-  batch.update(doc(database, "scrapbooks", scrapbookId), { updatedAt: serverTimestamp() });
-  await batch.commit();
+  const result = await response.json().catch(() => null) as { error?: string } | null;
+  if (!response.ok) throw new Error(result?.error ?? "The page could not be saved. Please try again.");
 }

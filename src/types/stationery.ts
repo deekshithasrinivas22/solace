@@ -125,5 +125,5 @@ export const scrapbookCoverArtworkValues = [
 
 export type ScrapbookCoverArtwork = (typeof scrapbookCoverArtworkValues)[number];
 
-export const defaultPaperTexture: PaperTextureId = "handmade-ivory";
-export const defaultTapeStyle: TapeStyleId = "washi-06";
+export const defaultPaperTexture: PaperTextureId = "lined-paper";
+export const defaultTapeStyle: TapeStyleId = "washi-08";

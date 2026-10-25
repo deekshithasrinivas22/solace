@@ -22,6 +22,23 @@ describe("journal entry validation", () => {
     expect(journalEntryInputSchema.safeParse({ ...validEntry, entryDate: "2026-02-30" }).success).toBe(false);
   });
 
+  it("validates Post-its, checklists, and calendar reminders", () => {
+    const entryWithTools = {
+      ...validEntry,
+      body: "",
+      postItText: "Remember to be gentle with yourself.",
+      postItColor: "pink",
+      checklistItems: ["Pick up the photos", "Call home"],
+      checklistChecked: [true, false],
+      reminderDate: "2026-10-30",
+    };
+    expect(journalEntryInputSchema.safeParse(entryWithTools).success).toBe(true);
+    expect(journalEntryInputSchema.safeParse({ ...entryWithTools, checklistChecked: [true] }).success).toBe(false);
+    expect(journalEntryInputSchema.safeParse({ ...entryWithTools, reminderDate: "2026-02-30" }).success).toBe(false);
+    expect(journalEntryInputSchema.safeParse({ ...entryWithTools, postItColor: "neon" }).success).toBe(false);
+    expect(journalEntryInputSchema.safeParse({ ...validEntry, body: "", postItText: "", checklistItems: [] }).success).toBe(false);
+  });
+
   it("bounds tags and stationery choices", () => {
     expect(journalEntryInputSchema.safeParse({ ...validEntry, tags: Array(13).fill("tag") }).success).toBe(false);
     expect(journalEntryInputSchema.safeParse({ ...validEntry, tags: ["x".repeat(31)] }).success).toBe(false);

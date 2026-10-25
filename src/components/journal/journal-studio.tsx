@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, ty
 import Image from "next/image";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
-  BookHeart, Bold, CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, Clock3, Eye,
+  Bell, BookHeart, Bold, CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, Clock3, Eye,
   ImagePlus, Images, Italic, List, LoaderCircle, Moon, PenLine, Plus, Quote,
   Search, Save, Sparkles, Trash2, X,
 } from "lucide-react";
@@ -35,7 +35,7 @@ function localToday() {
 }
 
 function emptyEntry(date = localToday()): JournalEntryInput {
-  return { title: "", body: "", entryDate: date, mood: "", tags: [], textureId: defaultPaperTexture, tapeId: defaultTapeStyle };
+  return { title: "", body: "", entryDate: date, mood: "", tags: [], textureId: defaultPaperTexture, tapeId: defaultTapeStyle, postItText: "", postItColor: "butter", checklistItems: [], checklistChecked: [], reminderDate: "" };
 }
 
 function entryInput(entry: JournalEntry): JournalEntryInput {
@@ -47,7 +47,16 @@ function entryInput(entry: JournalEntry): JournalEntryInput {
     tags: entry.tags ?? [],
     textureId: entry.textureId ?? defaultPaperTexture,
     tapeId: entry.tapeId ?? defaultTapeStyle,
+    postItText: entry.postItText ?? "",
+    postItColor: entry.postItColor ?? "butter",
+    checklistItems: entry.checklistItems ?? [],
+    checklistChecked: entry.checklistChecked ?? (entry.checklistItems ?? []).map(() => false),
+    reminderDate: entry.reminderDate ?? "",
   };
+}
+
+function hasJournalContent(entry: Pick<JournalEntryInput, "body" | "postItText" | "checklistItems">) {
+  return Boolean(entry.body.trim() || entry.postItText.trim() || entry.checklistItems.length);
 }
 
 function journalErrorMessage(error: unknown) {
@@ -125,6 +134,7 @@ export function JournalStudio() {
   const [selectedDate, setSelectedDate] = useState(localToday);
   const [searchText, setSearchText] = useState("");
   const [tagText, setTagText] = useState("");
+  const [checklistText, setChecklistText] = useState("");
   const [promptIndex, setPromptIndex] = useState(0);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [error, setError] = useState("");
@@ -169,7 +179,7 @@ export function JournalStudio() {
   const selectedKey = selectedEntry ? JSON.stringify(entryInput(selectedEntry)) : "";
   const dirty = selectedEntryId
     ? Boolean(selectedEntry && draftKey !== selectedKey)
-    : Boolean(draft.title.trim() || draft.body.trim() || draft.tags.length);
+    : Boolean(draft.title.trim() || draft.body.trim() || draft.tags.length || draft.postItText.trim() || draft.checklistItems.length || draft.reminderDate);
 
   const persistDraft = useCallback(async (
     input: JournalEntryInput,
@@ -211,7 +221,7 @@ export function JournalStudio() {
   }, [user]);
 
   useEffect(() => {
-    if (!user || loading || !dirty || !draft.body.trim() || pending === "delete") return;
+    if (!user || loading || !dirty || !hasJournalContent(draft) || pending === "delete") return;
     const parsed = journalEntryInputSchema.safeParse(draft);
     if (!parsed.success) return;
     const payload = parsed.data;
@@ -245,7 +255,7 @@ export function JournalStudio() {
   const visibleEntries = useMemo(() => {
     const needle = searchText.trim().toLowerCase();
     if (!needle) return sortedEntries;
-    return sortedEntries.filter((entry) => [entry.title, entry.body, ...(entry.tags ?? []), entry.mood]
+    return sortedEntries.filter((entry) => [entry.title, entry.body, entry.postItText ?? "", ...(entry.checklistItems ?? []), ...(entry.tags ?? []), entry.mood, entry.reminderDate ?? ""]
       .join(" ").toLowerCase().includes(needle));
   }, [searchText, sortedEntries]);
   const monthLabel = new Intl.DateTimeFormat(undefined, { month: "long", year: "numeric" }).format(calendarMonth);
@@ -260,6 +270,11 @@ export function JournalStudio() {
     });
   }, [calendarMonth]);
   const datesWithEntries = useMemo(() => new Set(entries.map((entry) => entry.entryDate)), [entries]);
+  const datesWithReminders = useMemo(() => new Set(entries.map((entry) => entry.reminderDate).filter((date): date is string => Boolean(date))), [entries]);
+  const reminderEntries = useMemo(() => entries
+    .filter((entry) => Boolean(entry.reminderDate) && entry.reminderDate! >= localToday())
+    .sort((first, second) => first.reminderDate!.localeCompare(second.reminderDate!))
+    .slice(0, 4), [entries]);
   function setDraftValue<K extends keyof JournalEntryInput>(key: K, value: JournalEntryInput[K]) {
     setDraft((current) => ({ ...current, [key]: value }));
     setError("");
@@ -274,6 +289,7 @@ export function JournalStudio() {
     setMindUnload(unload);
     setPreview(false);
     setPendingDecorationId(null);
+    setChecklistText("");
     setDeleteConfirm(false);
     setError("");
     setNotice("");
@@ -302,6 +318,7 @@ export function JournalStudio() {
     setMindUnload(false);
     setPreview(false);
     setPendingDecorationId(null);
+    setChecklistText("");
     setDeleteConfirm(false);
     setError("");
     setNotice("");
@@ -312,7 +329,7 @@ export function JournalStudio() {
     const key = dateKey(date);
     setSelectedDate(key);
     setCalendarMonth(new Date(date.getFullYear(), date.getMonth(), 1));
-    const entry = entries.find((item) => item.entryDate === key);
+    const entry = entries.find((item) => item.entryDate === key) ?? entries.find((item) => item.reminderDate === key);
     if (entry) openEntry(entry);
     else startNewEntry(key);
   }
@@ -354,6 +371,31 @@ export function JournalStudio() {
 
   function removeTag(tagToRemove: string) {
     setDraftValue("tags", draft.tags.filter((tag) => tag !== tagToRemove));
+  }
+
+  function addChecklistItem() {
+    const item = checklistText.trim();
+    if (!item) return;
+    if (draft.checklistItems.length >= 12) {
+      setError("A journal page can hold up to 12 checklist items.");
+      return;
+    }
+    setDraftValue("checklistItems", [...draft.checklistItems, item]);
+    setDraftValue("checklistChecked", [...draft.checklistChecked, false]);
+    setChecklistText("");
+  }
+
+  function updateChecklistItem(index: number, value: string) {
+    setDraftValue("checklistItems", draft.checklistItems.map((item, itemIndex) => itemIndex === index ? value : item));
+  }
+
+  function toggleChecklistItem(index: number, checked: boolean) {
+    setDraftValue("checklistChecked", draft.checklistChecked.map((value, itemIndex) => itemIndex === index ? checked : value));
+  }
+
+  function removeChecklistItem(index: number) {
+    setDraftValue("checklistItems", draft.checklistItems.filter((_, itemIndex) => itemIndex !== index));
+    setDraftValue("checklistChecked", draft.checklistChecked.filter((_, itemIndex) => itemIndex !== index));
   }
 
   function insertFormat(before: string, after = before, eachLine = false) {
@@ -566,19 +608,27 @@ export function JournalStudio() {
                     const hasEntry = datesWithEntries.has(key);
                     const selected = selectedDate === key;
                     return <button
-                      aria-label={formatDate(key, { month: "long", day: "numeric", year: "numeric" }) + (hasEntry ? ", journal page saved" : "")}
+                      aria-label={formatDate(key, { month: "long", day: "numeric", year: "numeric" }) + (hasEntry ? ", journal page saved" : "") + (datesWithReminders.has(key) ? ", reminder set" : "")}
                       aria-pressed={selected}
-                      className={"journal-calendar-day" + (!isCalendarMonth(date) ? " outside" : "") + (selected ? " selected" : "") + (hasEntry ? " has-entry" : "")}
+                      className={"journal-calendar-day" + (!isCalendarMonth(date) ? " outside" : "") + (selected ? " selected" : "") + (hasEntry ? " has-entry" : "") + (datesWithReminders.has(key) ? " has-reminder" : "")}
                       key={key}
                       onClick={() => handleCalendarDate(date)}
                       type="button"
                     >
                       {date.getDate()}
                       {hasEntry && <i aria-hidden="true" />}
+                      {datesWithReminders.has(key) && <b aria-hidden="true">✦</b>}
                     </button>;
                   })}
                 </div>
-                <p className="journal-calendar-hint">A small dot marks a day with a saved page.</p>
+                <p className="journal-calendar-hint">A dot marks a page · a star marks a reminder.</p>
+                {reminderEntries.length > 0 && <section className="journal-upcoming-reminders" aria-label="Upcoming journal reminders">
+                  <h3>Coming up</h3>
+                  {reminderEntries.map((entry) => <button key={entry.id} onClick={() => openEntry(entry)} type="button">
+                    <span>{entry.title.trim() || "A page to revisit"}</span>
+                    <time dateTime={entry.reminderDate}>{formatDate(entry.reminderDate!, { month: "short", day: "numeric" })}</time>
+                  </button>)}
+                </section>}
               </section>
             ) : (
               <>
@@ -595,7 +645,7 @@ export function JournalStudio() {
                       <span className="journal-entry-item-date">{formatDate(entry.entryDate, { month: "short", day: "numeric" })}<i>{entry.mood ? moodSymbols[entry.mood] : ""}</i></span>
                       <span className="journal-entry-item-copy">
                         <strong>{entry.title.trim() || "A page from " + formatDate(entry.entryDate, { month: "long", day: "numeric" })}</strong>
-                        <small>{entry.body.slice(0, 78) || "A quiet moment, kept."}</small>
+                        <small>{(entry.body || entry.postItText || entry.checklistItems?.[0] || "A quiet moment, kept.").slice(0, 78)}</small>
                         {(entry.tags ?? []).length > 0 && <span className="journal-entry-item-tags">{entry.tags?.slice(0, 3).join(" · ")}</span>}
                       </span>
                     </button>
@@ -693,6 +743,10 @@ export function JournalStudio() {
                   target={selectedEntryId ? { kind: "journal-entry", entryId: selectedEntryId } : null}
                 />
               </>}
+              {!mindUnload && draft.postItText.trim() && <aside className={"journal-postit-preview " + draft.postItColor}>
+                <span><Quote size={12} /> Post-it</span>
+                <p>{draft.postItText}</p>
+              </aside>}
               {preview && !mindUnload ? (
                 <div className="journal-markdown-preview" aria-label="Writing preview">{markdownPreview(draft.body)}</div>
               ) : (
@@ -715,6 +769,13 @@ export function JournalStudio() {
               </div>
             </div>
 
+            {!mindUnload && draft.checklistItems.length > 0 && <section className="journal-checklist-preview" aria-label="Journal checklist">
+              <div><List size={15} /><strong>Little checklist</strong><span>{draft.checklistItems.filter((_, index) => draft.checklistChecked[index]).length}/{draft.checklistItems.length}</span></div>
+              <ul>{draft.checklistItems.map((item, index) => <li key={index}>
+                <input aria-label={"Mark " + item + " complete"} checked={draft.checklistChecked[index] ?? false} onChange={(event) => toggleChecklistItem(index, event.target.checked)} type="checkbox" />
+                <span>{item}</span>
+              </li>)}</ul>
+            </section>}
             {entryPhotos.length > 0 && selectedEntryId && <div className="journal-photos-strip" aria-label="Photos attached to this entry">
               {entryPhotos.map((photo, index) => <div className="journal-photo-thumb" key={photo.publicId}>
                 <Image
@@ -760,8 +821,68 @@ export function JournalStudio() {
               </div>
             </details>}
 
+            {!mindUnload && <details className="journal-tools">
+              <summary><Sparkles size={16} /> Add a Post-it, checklist or reminder <span>Optional page extras</span></summary>
+              <div className="journal-tools-grid">
+                <section className="journal-tool-card journal-postit-card">
+                  <div className="journal-tool-heading"><Quote size={16} /><div><h3>Post-it</h3><p>A little thought to keep in view.</p></div></div>
+                  <label className="sr-only" htmlFor="journal-postit">Post-it note</label>
+                  <textarea id="journal-postit" maxLength={500} onChange={(event) => setDraftValue("postItText", event.target.value)} placeholder="Leave yourself a note…" rows={4} value={draft.postItText} />
+                  <div className="journal-postit-colors" role="group" aria-label="Post-it color">
+                    {([
+                      { id: "butter", label: "Butter yellow" },
+                      { id: "pink", label: "Petal pink" },
+                      { id: "blue", label: "Sky blue" },
+                      { id: "mint", label: "Mint" },
+                      { id: "lilac", label: "Lilac" },
+                    ] as const).map((color) => <button
+                      aria-label={color.label}
+                      aria-pressed={draft.postItColor === color.id}
+                      className={"journal-postit-color " + color.id + (draft.postItColor === color.id ? " selected" : "")}
+                      key={color.id}
+                      onClick={() => setDraftValue("postItColor", color.id)}
+                      title={color.label}
+                      type="button"
+                    />)}
+                  </div>
+                </section>
+
+                <section className="journal-tool-card journal-checklist-card">
+                  <div className="journal-tool-heading"><List size={16} /><div><h3>Little checklist</h3><p>Make a small plan for yourself.</p></div></div>
+                  {draft.checklistItems.length > 0 && <ul className="journal-checklist">
+                    {draft.checklistItems.map((item, index) => <li key={index}>
+                      <input aria-label={"Mark " + (item || "checklist item") + " complete"} checked={draft.checklistChecked[index] ?? false} onChange={(event) => toggleChecklistItem(index, event.target.checked)} type="checkbox" />
+                      <input aria-label={"Checklist item " + String(index + 1)} maxLength={160} onBlur={(event) => {
+                        const trimmed = event.currentTarget.value.trim();
+                        if (!trimmed) removeChecklistItem(index);
+                        else if (trimmed !== item) updateChecklistItem(index, trimmed);
+                      }} onChange={(event) => updateChecklistItem(index, event.target.value)} value={item} />
+                      <button aria-label={"Remove checklist item " + String(index + 1)} onClick={() => removeChecklistItem(index)} type="button"><X size={14} /></button>
+                    </li>)}
+                  </ul>}
+                  <div className="journal-checklist-add">
+                    <input aria-label="New checklist item" maxLength={160} onChange={(event) => setChecklistText(event.target.value)} onKeyDown={(event) => {
+                      if (event.key === "Enter") { event.preventDefault(); addChecklistItem(); }
+                    }} placeholder="Add one small thing…" value={checklistText} />
+                    <button aria-label="Add checklist item" disabled={!checklistText.trim() || draft.checklistItems.length >= 12} onClick={addChecklistItem} type="button"><Plus size={16} /></button>
+                  </div>
+                  <p className="journal-tool-caption">{draft.checklistItems.filter((_, index) => draft.checklistChecked[index]).length} of {draft.checklistItems.length} done</p>
+                </section>
+
+                <section className="journal-tool-card journal-reminder-card">
+                  <div className="journal-tool-heading"><Bell size={16} /><div><h3>Remind me</h3><p>Pin this page to a day on your journal calendar.</p></div></div>
+                  <label htmlFor="journal-reminder-date">Choose a date</label>
+                  <div className="journal-reminder-input">
+                    <input id="journal-reminder-date" max="9999-12-31" onChange={(event) => setDraftValue("reminderDate", event.target.value)} type="date" value={draft.reminderDate} />
+                    {draft.reminderDate && <button aria-label="Clear reminder date" onClick={() => setDraftValue("reminderDate", "")} type="button"><X size={14} /></button>}
+                  </div>
+                  <p className="journal-tool-caption">The reminder appears in the calendar and this page’s saved details.</p>
+                </section>
+              </div>
+            </details>}
+
             <div className="journal-editor-actions">
-              {!mindUnload ? <button className="button-primary journal-save-button" disabled={pending !== null || saveState === "saving" || (!dirty && selectedEntryId !== null) || !draft.body.trim()} type="submit">
+              {!mindUnload ? <button className="button-primary journal-save-button" disabled={pending !== null || saveState === "saving" || (!dirty && selectedEntryId !== null) || !hasJournalContent(draft)} type="submit">
                 {saveState === "saving" ? <LoaderCircle className="memory-spinner" size={15} /> : saveState === "saved" ? <Check size={15} /> : <Save size={15} />}
                 {saveState === "saving" ? "Saving…" : saveState === "error" ? "Try saving again" : selectedEntryId ? "Save now" : "Save this page"}
               </button> : <>

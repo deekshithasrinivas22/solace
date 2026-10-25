@@ -249,6 +249,18 @@ describe("Firestore private journal rules", () => {
     await assertSucceeds(updateDoc(entry, { title: "", tags: ["quiet day", "friends"], updatedAt: serverTimestamp() }));
     await assertFails(updateDoc(entry, { tags: Array(13).fill("tag"), updatedAt: serverTimestamp() }));
     await assertFails(updateDoc(entry, { tags: ["x".repeat(31)], updatedAt: serverTimestamp() }));
+    await assertSucceeds(updateDoc(entry, {
+      body: "",
+      postItText: "Remember to call home.",
+      postItColor: "pink",
+      checklistItems: ["Pick up the photos"],
+      checklistChecked: [false],
+      reminderDate: "2026-10-30",
+      updatedAt: serverTimestamp(),
+    }));
+    await assertFails(updateDoc(entry, { checklistItems: ["One task"], checklistChecked: [], updatedAt: serverTimestamp() }));
+    await assertFails(updateDoc(entry, { postItColor: "neon", updatedAt: serverTimestamp() }));
+    await assertFails(updateDoc(entry, { reminderDate: "next week", updatedAt: serverTimestamp() }));
 
     const keepsake = doc(db, "journalEntries", "ari-entry", "decorations", "flower-one");
     await assertSucceeds(setDoc(keepsake, placedDecorationData("ticket-04")));

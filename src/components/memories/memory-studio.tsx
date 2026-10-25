@@ -1,24 +1,39 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent, type FormEvent } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import Image from "next/image";
 import {
+  ArrowDown,
+  ArrowLeft,
+  ArrowRight,
+  ArrowUp,
+  Award,
   CalendarDays,
   Check,
+  CloudRain,
+  CloudSun,
+  Eye,
+  HandHeart,
   Heart,
   ImagePlus,
   LoaderCircle,
   MapPin,
+  Maximize2,
+  Moon,
   PenLine,
   Plus,
   Search,
   Sparkles,
+  Sun,
   Trash2,
+  Wind,
   X,
+  type LucideIcon,
 } from "lucide-react";
 import { useAuthStore } from "@/stores/auth-store";
 import { removeMemory, saveMemory, subscribeToMemories } from "@/lib/firebase/memories";
+import { MAX_MEMORY_PHOTO_BYTES, MAX_MEMORY_PHOTOS, MEMORY_PHOTO_TYPES } from "@/lib/memories/constants";
 import { memoryInputSchema } from "@/lib/validations/memory";
 import {
   memoryMoodLabels,
@@ -42,6 +57,151 @@ function prettyDate(value: string) {
   const date = new Date(value + "T12:00:00");
   return new Intl.DateTimeFormat(undefined, { month: "long", day: "numeric", year: "numeric" }).format(date);
 }
+
+function prettyTime(value: string) {
+  if (!value) return "";
+  const parts = value.split(":").map(Number);
+  if (parts.length !== 2 || parts.some(Number.isNaN)) return value;
+  return new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" })
+    .format(new Date(2000, 0, 1, parts[0], parts[1]));
+}
+
+function memoryPhotoUrl(memoryId: string, publicId: string) {
+  const query = new URLSearchParams({ memoryId, publicId });
+  return `/api/memories/photos?${query.toString()}`;
+}
+
+type MemoryPhotoDraft =
+  | { id: string; kind: "stored"; photo: MemoryPhoto }
+  | { id: string; kind: "file"; file: File; previewUrl: string };
+
+async function prepareMemoryPhoto(file: File) {
+  if (!MEMORY_PHOTO_TYPES.includes(file.type as (typeof MEMORY_PHOTO_TYPES)[number])) {
+    throw new Error("Choose a JPG, PNG, or WebP photo.");
+  }
+  if (file.size > 24 * 1024 * 1024) throw new Error("Choose a photo smaller than 24 MB.");
+
+  let bitmap: ImageBitmap;
+  try {
+    bitmap = await createImageBitmap(file);
+  } catch {
+    if (file.size <= MAX_MEMORY_PHOTO_BYTES) return file;
+    throw new Error("This photo is too large to prepare on this device. Choose one under 8 MB.");
+  }
+
+  if (file.size <= MAX_MEMORY_PHOTO_BYTES && Math.max(bitmap.width, bitmap.height) <= 2400) {
+    bitmap.close();
+    return file;
+  }
+
+  try {
+    const scale = Math.min(1, 2400 / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("This photo couldn’t be prepared. Try another image.");
+    context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+
+    for (const quality of [0.88, 0.78, 0.68]) {
+      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/webp", quality));
+      if (!blob) continue;
+      if (blob.size <= MAX_MEMORY_PHOTO_BYTES) {
+        const extension = blob.type === "image/webp" ? "webp" : "png";
+        const baseName = file.name.replace(/\.[^.]+$/, "") || "memory-photo";
+        return new File([blob], `${baseName}.${extension}`, { type: blob.type, lastModified: file.lastModified });
+      }
+    }
+  } finally {
+    bitmap.close();
+  }
+  throw new Error("This photo is still too large after compression. Choose one under 8 MB.");
+}
+
+function uploadMemoryPhotoRequest(
+  memoryId: string,
+  file: File,
+  idToken: string,
+  onProgress: (progress: number) => void,
+) {
+  const form = new FormData();
+  form.set("memoryId", memoryId);
+  form.set("file", file, file.name);
+
+  return new Promise<{ photo: MemoryPhoto }>((resolve, reject) => {
+    const request = new XMLHttpRequest();
+    request.open("POST", "/api/memories/photos");
+    request.setRequestHeader("Authorization", `Bearer ${idToken}`);
+    request.upload.addEventListener("progress", (event) => {
+      if (event.lengthComputable) onProgress(Math.round((event.loaded / event.total) * 100));
+    });
+    request.addEventListener("load", () => {
+      let result: { error?: string; photo?: MemoryPhoto } | null = null;
+      try {
+        result = JSON.parse(request.responseText || "null") as { error?: string; photo?: MemoryPhoto } | null;
+      } catch {
+        reject(new Error("Solace couldn’t read the upload response. Please retry this photo."));
+        return;
+      }
+      if (request.status >= 200 && request.status < 300 && result?.photo) {
+        resolve({ photo: result.photo });
+      } else {
+        reject(new Error(result?.error ?? "The photo couldn’t be added. Please try again."));
+      }
+    });
+    request.addEventListener("error", () => reject(new Error("Connection trouble. Check your connection and try the photo again.")));
+    request.addEventListener("abort", () => reject(new Error("The photo upload was paused. Try again when you’re ready.")));
+    request.send(form);
+  });
+}
+
+async function reorderMemoryPhotoRequest(memoryId: string, publicIds: string[], idToken: string) {
+  const response = await fetch("/api/memories/photos", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
+    body: JSON.stringify({ memoryId, publicIds }),
+  });
+  const result = await response.json().catch(() => null) as { error?: string } | null;
+  if (!response.ok) throw new Error(result?.error ?? "The photo order couldn’t be saved. Please try again.");
+}
+
+async function deleteMemoryPhotoRequest(memoryId: string, publicId: string, idToken: string) {
+  const response = await fetch("/api/memories/photos", {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json", Authorization: "Bearer " + idToken },
+    body: JSON.stringify({ memoryId, publicId }),
+  });
+  const result = await response.json().catch(() => null) as { error?: string; photoCleanupPending?: boolean } | null;
+  if (!response.ok) throw new Error(result?.error ?? "The photo could not be removed.");
+  return { photoCleanupPending: result?.photoCleanupPending ?? false };
+}
+
+function savedDateLabel(value: unknown) {
+  let date: Date | null = null;
+  if (value instanceof Date) date = value;
+  else if (value && typeof value === "object" && "toDate" in value && typeof value.toDate === "function") {
+    date = value.toDate() as Date;
+  } else if (value && typeof value === "object" && "seconds" in value && typeof value.seconds === "number") {
+    date = new Date(value.seconds * 1000);
+  }
+  return date && !Number.isNaN(date.getTime())
+    ? new Intl.DateTimeFormat(undefined, { month: "long", day: "numeric", year: "numeric" }).format(date)
+    : "Date saved with this memory";
+}
+
+const moodIcons = {
+  joyful: Sun,
+  excited: Sparkles,
+  peaceful: Moon,
+  loved: Heart,
+  grateful: HandHeart,
+  nostalgic: CalendarDays,
+  tender: Heart,
+  bittersweet: CloudSun,
+  sad: CloudRain,
+  anxious: Wind,
+  proud: Award,
+} satisfies Record<MemoryMood, LucideIcon>;
 
 function memoryErrorMessage(error: unknown) {
   const code =
@@ -94,7 +254,9 @@ export function MemoryStudio() {
   const [deleting, setDeleting] = useState(false);
   const [photoTargetId, setPhotoTargetId] = useState("");
   const [photoPendingId, setPhotoPendingId] = useState("");
+  const [photoProgress, setPhotoProgress] = useState(0);
   const [photoError, setPhotoError] = useState("");
+  const [viewingMemoryId, setViewingMemoryId] = useState("");
   const [search, setSearch] = useState("");
   const [moodFilter, setMoodFilter] = useState<MemoryMood | "">("");
   const photoInputRef = useRef<HTMLInputElement>(null);
@@ -145,10 +307,32 @@ export function MemoryStudio() {
     setNotice("");
   }
 
-  async function handleSave(input: MemoryInput) {
+  async function handleSave(input: MemoryInput, memoryId?: string) {
     if (!user) throw new Error("Sign in again to save this memory.");
-    await saveMemory(user.uid, input, editingMemory?.id);
-    setNotice(editingMemory ? "Your memory has been updated." : "Your memory is tucked safely away.");
+    const isCreating = !editingMemory;
+    const savedId = await saveMemory(user.uid, input, memoryId ?? editingMemory?.id, isCreating);
+    setNotice(memoryId || editingMemory ? "Your memory has been updated." : "Your memory is tucked safely away.");
+    return savedId;
+  }
+
+  async function uploadPhotoForMemory(
+    memoryId: string,
+    file: File,
+    onProgress: (progress: number) => void,
+  ) {
+    if (!user) throw new Error("Sign in again before adding a photo.");
+    const preparedFile = await prepareMemoryPhoto(file);
+    return uploadMemoryPhotoRequest(memoryId, preparedFile, await user.getIdToken(), onProgress);
+  }
+
+  async function handleReorderPhotos(memoryId: string, publicIds: string[]) {
+    if (!user) throw new Error("Sign in again before arranging these photos.");
+    await reorderMemoryPhotoRequest(memoryId, publicIds, await user.getIdToken());
+  }
+
+  async function removePhotoForMemory(memoryId: string, photo: MemoryPhoto) {
+    if (!user) throw new Error("Sign in again before removing this photo.");
+    return deleteMemoryPhotoRequest(memoryId, photo.publicId, await user.getIdToken());
   }
 
   async function handleDelete(memoryId: string) {
@@ -175,18 +359,19 @@ export function MemoryStudio() {
   }
 
   async function uploadPhoto(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.currentTarget.files?.[0];
+    const files = Array.from(event.currentTarget.files ?? []);
     event.currentTarget.value = "";
     const memory = memories.find((item) => item.id === photoTargetId);
     setPhotoTargetId("");
-    if (!file || !memory || !user) return;
+    if (!files.length || !memory || !user) return;
 
-    if ((memory.photos?.length ?? 0) >= 5) {
-      setPhotoError("A memory can hold up to five photos.");
+    const remaining = MAX_MEMORY_PHOTOS - (memory.photos?.length ?? 0);
+    if (files.length > remaining) {
+      setPhotoError(`This memory has room for ${remaining} more ${remaining === 1 ? "photo" : "photos"}.`);
       return;
     }
-    if (!/^(image\/(jpeg|png|webp))$/.test(file.type) || file.size > 8 * 1024 * 1024) {
-      setPhotoError("Choose a JPG, PNG, or WebP photo smaller than 8 MB.");
+    if (files.some((file) => !MEMORY_PHOTO_TYPES.includes(file.type as (typeof MEMORY_PHOTO_TYPES)[number]) || file.size > 24 * 1024 * 1024)) {
+      setPhotoError("Choose JPG, PNG, or WebP photos smaller than 24 MB each.");
       return;
     }
 
@@ -194,23 +379,18 @@ export function MemoryStudio() {
     setPhotoError("");
     setNotice("");
     try {
-      const form = new FormData();
-      form.set("memoryId", memory.id);
-      form.set("file", file);
-      const response = await fetch("/api/memories/photos", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${await user.getIdToken()}` },
-        body: form,
-      });
-      const result = await response.json() as { error?: string; photo?: MemoryPhoto; url?: string };
-      if (!response.ok || !result.photo || !result.url) {
-        throw new Error(result.error ?? "The photo could not be added.");
+      for (const [index, file] of files.entries()) {
+        const preparedFile = await prepareMemoryPhoto(file);
+        await uploadMemoryPhotoRequest(memory.id, preparedFile, await user.getIdToken(), setPhotoProgress);
+        setNotice(files.length > 1
+          ? `Added ${index + 1} of ${files.length} photos to this memory.`
+          : "Your photo is safely tucked into this memory.");
       }
-      setNotice("Your photo is safely tucked into this memory.");
     } catch (error) {
       setPhotoError(error instanceof Error ? error.message : "The photo could not be added. Please try again.");
     } finally {
       setPhotoPendingId("");
+      setPhotoProgress(0);
     }
   }
 
@@ -219,13 +399,7 @@ export function MemoryStudio() {
     setPhotoPendingId(`${memoryId}:${photo.publicId}`);
     setPhotoError("");
     try {
-      const response = await fetch("/api/memories/photos", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${await user.getIdToken()}` },
-        body: JSON.stringify({ memoryId, publicId: photo.publicId }),
-      });
-      const result = await response.json() as { error?: string; photoCleanupPending?: boolean };
-      if (!response.ok) throw new Error(result.error ?? "The photo could not be removed.");
+      const result = await removePhotoForMemory(memoryId, photo);
       setNotice(result.photoCleanupPending
         ? "The photo was removed from this memory and will finish clearing shortly."
         : "The photo was removed from this memory.");
@@ -236,6 +410,8 @@ export function MemoryStudio() {
     }
   }
 
+  const viewingMemory = memories.find((memory) => memory.id === viewingMemoryId) ?? null;
+
   return (
     <div className="memory-page">
       <input
@@ -243,6 +419,7 @@ export function MemoryStudio() {
         accept="image/jpeg,image/png,image/webp"
         className="memory-file-input"
         onChange={(event) => void uploadPhoto(event)}
+        multiple
         type="file"
       />
       <motion.header
@@ -340,18 +517,33 @@ export function MemoryStudio() {
               animate={{ opacity: 1, y: 0, rotate: 0 }}
               transition={{ duration: 0.38, delay: reduceMotion ? 0 : Math.min(index * 0.055, 0.28) }}
             >
-              <div className={"memory-card-art memory-card-art-" + ((index % 3) + 1)} aria-hidden="true">
-                <span className="memory-card-art-orbit" />
-                <span className="memory-card-art-star">✦</span>
+              <div className={"memory-card-art memory-card-art-" + ((index % 3) + 1) + (memory.photos?.[0] ? " has-memory-cover" : "")}>
+                {memory.photos?.[0] ? (
+                  <Image
+                    alt=""
+                    aria-hidden="true"
+                    className="memory-card-cover"
+                    fill
+                    sizes="(max-width: 680px) 100vw, (max-width: 1100px) 50vw, 360px"
+                    src={memoryPhotoUrl(memory.id, memory.photos[0].publicId)}
+                    unoptimized
+                  />
+                ) : (
+                  <>
+                    <span className="memory-card-art-orbit" />
+                    <span className="memory-card-art-star">✦</span>
+                  </>
+                )}
                 <span className="memory-card-art-date">{prettyDate(memory.memoryDate)}</span>
                 <span className="memory-card-art-caption">kept close</span>
               </div>
               <div className="memory-card-body">
                 <div className="memory-card-kicker">
                   <span><CalendarDays size={13} /> {prettyDate(memory.memoryDate)}</span>
+                  {memory.memoryTime && <span>{prettyTime(memory.memoryTime)}</span>}
                   {memory.mood && <span className="memory-mood"><Heart size={12} /> {memoryMoodLabels[memory.mood]}</span>}
                 </div>
-                <h2 className="serif">{memory.title}</h2>
+                <h2 className="serif"><button className="memory-card-title" onClick={() => setViewingMemoryId(memory.id)} type="button">{memory.title}</button></h2>
                 {memory.location && <p className="memory-location"><MapPin size={13} /> {memory.location}</p>}
                 {memory.description && <p className="memory-description">{memory.description}</p>}
                 {!!memory.tags?.length && (
@@ -396,7 +588,7 @@ export function MemoryStudio() {
                     </div>
                   ) : (
                     <>
-                      {(memory.photos?.length ?? 0) < 5 && (
+                      {(memory.photos?.length ?? 0) < MAX_MEMORY_PHOTOS && (
                         <button
                           className="memory-add-photo-button"
                           disabled={Boolean(photoPendingId)}
@@ -404,9 +596,12 @@ export function MemoryStudio() {
                           type="button"
                         >
                           {photoPendingId === memory.id ? <LoaderCircle className="memory-spinner" size={14} /> : <ImagePlus size={14} />}
-                          {photoPendingId === memory.id ? "Adding…" : "Add photo"}
+                          {photoPendingId === memory.id ? "Adding photo " + photoProgress + "%" : "Add photos"}
                         </button>
                       )}
+                      <button className="memory-edit-button" onClick={() => setViewingMemoryId(memory.id)} type="button">
+                        <Eye size={14} /> Open
+                      </button>
                       <button className="memory-edit-button" onClick={() => openEditMemory(memory)} type="button">
                         <PenLine size={14} /> Edit
                       </button>
@@ -434,6 +629,26 @@ export function MemoryStudio() {
             memory={editingMemory}
             onClose={() => setFormOpen(false)}
             onSave={handleSave}
+            onUploadPhoto={uploadPhotoForMemory}
+            onRemovePhoto={removePhotoForMemory}
+            onReorderPhotos={handleReorderPhotos}
+          />
+        )}
+      </AnimatePresence>
+      <AnimatePresence>
+        {viewingMemory && (
+          <MemoryDetail
+            key={viewingMemory.id}
+            memory={viewingMemory}
+            onClose={() => setViewingMemoryId("")}
+            onEdit={() => {
+              setViewingMemoryId("");
+              openEditMemory(viewingMemory);
+            }}
+            onDelete={() => {
+              setViewingMemoryId("");
+              setDeleteId(viewingMemory.id);
+            }}
           />
         )}
       </AnimatePresence>
@@ -445,20 +660,126 @@ function MemoryComposer({
   memory,
   onClose,
   onSave,
+  onUploadPhoto,
+  onRemovePhoto,
+  onReorderPhotos,
 }: {
   memory: Memory | null;
   onClose: () => void;
-  onSave: (input: MemoryInput) => Promise<void>;
+  onSave: (input: MemoryInput, memoryId?: string) => Promise<string>;
+  onUploadPhoto: (memoryId: string, file: File, onProgress: (progress: number) => void) => Promise<{ photo: MemoryPhoto }>;
+  onRemovePhoto: (memoryId: string, photo: MemoryPhoto) => Promise<{ photoCleanupPending: boolean }>;
+  onReorderPhotos: (memoryId: string, publicIds: string[]) => Promise<void>;
 }) {
   const reduceMotion = useReducedMotion() ?? false;
   const [title, setTitle] = useState(memory?.title ?? "");
   const [description, setDescription] = useState(memory?.description ?? "");
   const [memoryDate, setMemoryDate] = useState(memory?.memoryDate ?? todayDate());
+  const [memoryTime, setMemoryTime] = useState(memory?.memoryTime ?? "");
   const [location, setLocation] = useState(memory?.location ?? "");
   const [mood, setMood] = useState<MemoryMood | "">(memory?.mood ?? "");
   const [tags, setTags] = useState(memory?.tags.join(", ") ?? "");
+  const [photos, setPhotos] = useState<MemoryPhotoDraft[]>(
+    (memory?.photos ?? []).map((photo) => ({ id: photo.publicId, kind: "stored", photo })),
+  );
+  const [removedPhotos, setRemovedPhotos] = useState<MemoryPhoto[]>([]);
+  const [savedMemoryId, setSavedMemoryId] = useState(memory?.id ?? "");
+  const [hasSavedThisAttempt, setHasSavedThisAttempt] = useState(false);
+  const [photoProgress, setPhotoProgress] = useState<{ id: string; value: number } | null>(null);
+  const [draggedPhotoId, setDraggedPhotoId] = useState("");
+  const previewUrls = useRef(new Set<string>());
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => () => {
+    previewUrls.current.forEach((url) => URL.revokeObjectURL(url));
+    previewUrls.current.clear();
+  }, []);
+
+  function addPhotos(files: FileList | File[]) {
+    const selected = Array.from(files);
+    if (!selected.length) return;
+    const remaining = MAX_MEMORY_PHOTOS - photos.length;
+    if (selected.length > remaining) {
+      setError("There is room for " + remaining + " more " + (remaining === 1 ? "photo" : "photos") + " in this memory.");
+      return;
+    }
+    const invalidFile = selected.find((file) =>
+      !MEMORY_PHOTO_TYPES.includes(file.type as (typeof MEMORY_PHOTO_TYPES)[number]) || file.size > 24 * 1024 * 1024,
+    );
+    if (invalidFile) {
+      setError("Choose JPG, PNG, or WebP photos under 24 MB each.");
+      return;
+    }
+    const additions: MemoryPhotoDraft[] = selected.map((file) => {
+      const previewUrl = URL.createObjectURL(file);
+      previewUrls.current.add(previewUrl);
+      return { id: crypto.randomUUID(), kind: "file", file, previewUrl };
+    });
+    setPhotos((current) => [...current, ...additions]);
+    setError("");
+  }
+
+  function removeDraftPhoto(photo: MemoryPhotoDraft) {
+    if (photo.kind === "file") {
+      URL.revokeObjectURL(photo.previewUrl);
+      previewUrls.current.delete(photo.previewUrl);
+    } else {
+      setRemovedPhotos((current) => current.some((item) => item.publicId === photo.photo.publicId)
+        ? current
+        : [...current, photo.photo]);
+    }
+    setPhotos((current) => current.filter((item) => item.id !== photo.id));
+  }
+
+  function movePhoto(photoId: string, offset: -1 | 1) {
+    setPhotos((current) => {
+      const from = current.findIndex((photo) => photo.id === photoId);
+      const to = from + offset;
+      if (from < 0 || to < 0 || to >= current.length) return current;
+      const next = [...current];
+      const [photo] = next.splice(from, 1);
+      next.splice(to, 0, photo);
+      return next;
+    });
+  }
+
+  function dropPhoto(event: DragEvent<HTMLDivElement>, targetId: string) {
+    event.preventDefault();
+    const sourceId = draggedPhotoId || event.dataTransfer.getData("text/plain");
+    setDraggedPhotoId("");
+    if (!sourceId || sourceId === targetId) return;
+    setPhotos((current) => {
+      const from = current.findIndex((photo) => photo.id === sourceId);
+      const to = current.findIndex((photo) => photo.id === targetId);
+      if (from < 0 || to < 0) return current;
+      const next = [...current];
+      const [photo] = next.splice(from, 1);
+      next.splice(to, 0, photo);
+      return next;
+    });
+  }
+
+  function closeComposer() {
+    if (pending) return;
+    const changed = memory
+      ? title !== memory.title
+        || description !== memory.description
+        || memoryDate !== memory.memoryDate
+        || memoryTime !== (memory.memoryTime ?? "")
+        || location !== memory.location
+        || mood !== memory.mood
+        || tags !== memory.tags.join(", ")
+        || removedPhotos.length > 0
+        || photos.some((photo) => photo.kind === "file")
+        || photos.map((photo) => photo.id).join("|") !== (memory.photos ?? []).map((photo) => photo.publicId).join("|")
+      : Boolean(title.trim() || description.trim() || location.trim() || mood || tags.trim() || photos.length);
+    if (changed && !window.confirm("Leave this memory editor? Your unsaved changes will be discarded. Already saved details will stay on your shelf.")) {
+      return;
+    }
+    onClose();
+  }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -467,6 +788,7 @@ function MemoryComposer({
       title,
       description,
       memoryDate,
+      memoryTime,
       location,
       mood,
       tags: tags.split(",").map((tag) => tag.trim()).filter(Boolean),
@@ -479,12 +801,43 @@ function MemoryComposer({
 
     setPending(true);
     try {
-      await onSave(parsed.data);
+      let memoryId = savedMemoryId || memory?.id || crypto.randomUUID();
+      setSavedMemoryId(memoryId);
+      try {
+        memoryId = await onSave(parsed.data, memoryId);
+        setSavedMemoryId(memoryId);
+        setHasSavedThisAttempt(true);
+      } catch (saveError) {
+        setError(memoryErrorMessage(saveError));
+        return;
+      }
+
+      let nextPhotos = [...photos];
+      for (const draft of nextPhotos) {
+        if (draft.kind !== "file") continue;
+        setPhotoProgress({ id: draft.id, value: 0 });
+        const result = await onUploadPhoto(memoryId, draft.file, (value) => setPhotoProgress({ id: draft.id, value }));
+        const stored: MemoryPhotoDraft = { id: result.photo.publicId, kind: "stored", photo: result.photo };
+        URL.revokeObjectURL(draft.previewUrl);
+        previewUrls.current.delete(draft.previewUrl);
+        nextPhotos = nextPhotos.map((photo) => photo.id === draft.id ? stored : photo);
+        setPhotos(nextPhotos);
+      }
+      setPhotoProgress(null);
+
+      for (const photo of removedPhotos) {
+        await onRemovePhoto(memoryId, photo);
+        setRemovedPhotos((current) => current.filter((item) => item.publicId !== photo.publicId));
+      }
+
+      const desiredOrder = nextPhotos.map((photo) => photo.kind === "stored" ? photo.photo.publicId : "");
+      await onReorderPhotos(memoryId, desiredOrder);
       onClose();
     } catch (saveError) {
-      setError(memoryErrorMessage(saveError));
+      setError(saveError instanceof Error ? saveError.message : "That memory couldn’t be saved. Please try again.");
     } finally {
       setPending(false);
+      setPhotoProgress(null);
     }
   }
 
@@ -495,7 +848,7 @@ function MemoryComposer({
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       onMouseDown={(event) => {
-        if (event.target === event.currentTarget && !pending) onClose();
+        if (event.target === event.currentTarget) closeComposer();
       }}
     >
       <motion.section
@@ -511,78 +864,192 @@ function MemoryComposer({
         <div className="memory-composer-heading">
           <div>
             <span className="eyebrow">{memory ? "A moment, revisited" : "A moment to keep"}</span>
-            <h2 className="serif" id="memory-form-title">{memory ? "Edit your memory." : "Write it down."}</h2>
+            <h2 className="serif" id="memory-form-title">{memory ? "A moment worth keeping." : "A moment worth keeping."}</h2>
           </div>
-          <button aria-label="Close memory form" className="memory-close-button" disabled={pending} onClick={onClose} type="button">
-            <X size={18} />
-          </button>
+          <button aria-label="Close memory form" className="memory-close-button" disabled={pending} onClick={closeComposer} type="button"><X size={18} /></button>
         </div>
 
         <form className="memory-form" onSubmit={submit}>
           <label className="memory-field memory-field-full">
-            <span>Give this day a name</span>
-            <input
-              autoFocus
-              maxLength={120}
-              onChange={(event) => setTitle(event.target.value)}
-              placeholder="The afternoon we took the long way home"
-              required
-              value={title}
-            />
+            <span>What would you call this moment?</span>
+            <input autoFocus maxLength={120} onChange={(event) => setTitle(event.target.value)} placeholder="The afternoon we took the long way home" required value={title} />
           </label>
           <label className="memory-field memory-field-full">
-            <span>What do you want to remember?</span>
-            <textarea
-              maxLength={5000}
-              onChange={(event) => setDescription(event.target.value)}
-              placeholder="The light, the laughter, the little thing someone said…"
-              rows={4}
-              value={description}
-            />
+            <span>A little note about this moment</span>
+            <textarea maxLength={5000} onChange={(event) => setDescription(event.target.value)} placeholder="The light, the laughter, the little thing someone said…" rows={4} value={description} />
           </label>
           <div className="memory-form-row">
             <label className="memory-field">
-              <span>When was it?</span>
+              <span>When did it happen?</span>
               <input onChange={(event) => setMemoryDate(event.target.value)} required type="date" value={memoryDate} />
             </label>
             <label className="memory-field">
-              <span>Where were you?</span>
-              <input
-                maxLength={120}
-                onChange={(event) => setLocation(event.target.value)}
-                placeholder="A place, or a little corner"
-                value={location}
-              />
+              <span>About what time? <small>Optional</small></span>
+              <input onChange={(event) => setMemoryTime(event.target.value)} type="time" value={memoryTime} />
             </label>
           </div>
-          <div className="memory-form-row">
+          <label className="memory-field memory-field-full">
+            <span>Where did it happen? <small>Optional</small></span>
+            <input maxLength={120} onChange={(event) => setLocation(event.target.value)} placeholder="A place, or a little corner" value={location} />
+          </label>
+          <div className="memory-form-row memory-details-row">
             <label className="memory-field">
-              <span>How did it feel?</span>
-              <select onChange={(event) => setMood(event.target.value as MemoryMood | "")} value={mood}>
-                <option value="">Keep it open</option>
-                {memoryMoodValues.map((value) => <option key={value} value={value}>{memoryMoodLabels[value]}</option>)}
-              </select>
+              <span>Little tags <small>Optional, up to 12</small></span>
+              <input onChange={(event) => setTags(event.target.value)} placeholder="summer, friends, home, milestone" value={tags} />
             </label>
-            <label className="memory-field">
-              <span>Little tags</span>
-              <input
-                onChange={(event) => setTags(event.target.value)}
-                placeholder="summer, friends, home, milestone"
-                value={tags}
-              />
-            </label>
+            <div className="memory-field">
+              <span>How did it feel? <small>Any feeling is welcome</small></span>
+              <div className="memory-mood-grid" role="group" aria-label="Choose a feeling">
+                <button aria-pressed={!mood} className={"memory-mood-chip" + (!mood ? " selected" : "")} onClick={() => setMood("")} type="button"><Heart size={14} /> Keep it open</button>
+                {memoryMoodValues.map((value) => {
+                  const MoodIcon = moodIcons[value];
+                  return <button aria-pressed={mood === value} className={"memory-mood-chip" + (mood === value ? " selected" : "")} key={value} onClick={() => setMood(value)} type="button"><MoodIcon size={14} /> {memoryMoodLabels[value]}</button>;
+                })}
+              </div>
+            </div>
           </div>
-          <p className="memory-private-note"><Heart size={14} /> Private to your Solace space. After saving, add up to five photos on the memory card.</p>
+
+          <section className="memory-upload-section" aria-labelledby="memory-upload-title">
+            <div className="memory-upload-heading">
+              <div><span className="memory-upload-title" id="memory-upload-title"><ImagePlus size={16} /> Add photos or keepsakes</span><p>Choose up to {MAX_MEMORY_PHOTOS}. Photos stay private to your Solace space.</p></div>
+              <span className="memory-photo-count">{photos.length}/{MAX_MEMORY_PHOTOS}</span>
+            </div>
+            <div className="memory-dropzone" onDragOver={(event) => event.preventDefault()} onDrop={(event) => {
+              event.preventDefault();
+              if (event.dataTransfer.files.length) addPhotos(event.dataTransfer.files);
+            }}>
+              <ImagePlus size={19} />
+              <strong>Drop photos here, or choose from your device</strong>
+              <span>JPG, PNG, or WebP · up to 24 MB each before gentle compression</span>
+              <button className="button-secondary" disabled={pending || photos.length >= MAX_MEMORY_PHOTOS} onClick={() => fileInputRef.current?.click()} type="button"><Plus size={15} /> Choose photos</button>
+              <input accept="image/jpeg,image/png,image/webp" className="memory-file-input" multiple onChange={(event) => {
+                if (event.target.files) addPhotos(event.target.files);
+                event.target.value = "";
+              }} ref={fileInputRef} type="file" />
+            </div>
+            {photos.length > 0 && <div className="memory-draft-photo-grid" aria-label="Photos attached to this memory">
+              {photos.map((photo, index) => {
+                const src = photo.kind === "file" ? photo.previewUrl : memoryPhotoUrl(memory?.id ?? savedMemoryId, photo.photo.publicId);
+                return <div className={"memory-draft-photo" + (draggedPhotoId === photo.id ? " is-dragging" : "")} draggable key={photo.id}
+                  onDragStart={(event) => { setDraggedPhotoId(photo.id); event.dataTransfer.setData("text/plain", photo.id); event.dataTransfer.effectAllowed = "move"; }}
+                  onDragEnd={() => setDraggedPhotoId("")} onDragOver={(event) => event.preventDefault()} onDrop={(event) => dropPhoto(event, photo.id)}>
+                  <Image alt={photo.kind === "file" ? photo.file.name : "Saved memory photo"} className="memory-draft-photo-image" fill sizes="150px" src={src} unoptimized />
+                  <span className="memory-draft-photo-number">{index + 1}</span>
+                  {photo.kind === "file" && photoProgress?.id === photo.id && <span className="memory-photo-progress" role="status">Uploading {photoProgress.value}%</span>}
+                  <div className="memory-draft-photo-actions">
+                    <button aria-label={"Move photo " + (index + 1) + " earlier"} disabled={pending || index === 0} onClick={() => movePhoto(photo.id, -1)} type="button"><ArrowUp size={14} /></button>
+                    <button aria-label={"Move photo " + (index + 1) + " later"} disabled={pending || index === photos.length - 1} onClick={() => movePhoto(photo.id, 1)} type="button"><ArrowDown size={14} /></button>
+                    <button aria-label={"Remove photo " + (index + 1)} disabled={pending} onClick={() => removeDraftPhoto(photo)} type="button"><X size={14} /></button>
+                  </div>
+                </div>;
+              })}
+            </div>}
+          </section>
+
+          <p className="memory-private-note"><Heart size={14} /> Your memory and photos stay private. Event date and the day it was saved are kept separately.</p>
+          {hasSavedThisAttempt && photos.some((photo) => photo.kind === "file") && <p className="memory-upload-resume" role="status">If an upload did not finish, save again to continue. Photos already uploaded will stay attached.</p>}
           {error && <p className="memory-error" role="alert">{error}</p>}
           <div className="memory-form-actions">
-            <button className="button-secondary" disabled={pending} onClick={onClose} type="button">Let it wait</button>
+            <button className="button-secondary" disabled={pending} onClick={closeComposer} type="button">Let it wait</button>
             <button className="button-primary" disabled={pending} type="submit">
               {pending ? <LoaderCircle size={16} className="memory-spinner" /> : <Sparkles size={16} />}
-              {pending ? "Saving…" : memory ? "Save changes" : "Keep this memory"}
+              {pending ? (photoProgress ? "Adding photos…" : "Saving…") : hasSavedThisAttempt && photos.some((photo) => photo.kind === "file") ? "Retry photo uploads" : memory ? "Save changes" : "Keep this memory"}
             </button>
           </div>
         </form>
       </motion.section>
     </motion.div>
   );
+}
+
+function MemoryDetail({ memory, onClose, onEdit, onDelete }: {
+  memory: Memory;
+  onClose: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  const reduceMotion = useReducedMotion() ?? false;
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  const [zoomed, setZoomed] = useState(false);
+  const touchStartX = useRef<number | null>(null);
+  const photos = memory.photos ?? [];
+
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        if (lightboxIndex !== null) { setLightboxIndex(null); setZoomed(false); }
+        else onClose();
+      } else if (lightboxIndex !== null && event.key === "ArrowRight") {
+        setLightboxIndex((current) => current === null || photos.length < 2 ? current : (current + 1) % photos.length);
+        setZoomed(false);
+      } else if (lightboxIndex !== null && event.key === "ArrowLeft") {
+        setLightboxIndex((current) => current === null || photos.length < 2 ? current : (current - 1 + photos.length) % photos.length);
+        setZoomed(false);
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [lightboxIndex, onClose, photos.length]);
+
+  function showAdjacentPhoto(direction: -1 | 1) {
+    setLightboxIndex((current) => current === null || photos.length < 2 ? current : (current + direction + photos.length) % photos.length);
+    setZoomed(false);
+  }
+
+  return <motion.div className="memory-modal-backdrop memory-detail-backdrop" initial={reduceMotion ? false : { opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+    onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+    <motion.section aria-labelledby="memory-detail-title" aria-modal="true" className="memory-detail"
+      initial={reduceMotion ? false : { opacity: 0, y: 16, scale: 0.985 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 10, scale: 0.985 }} role="dialog" transition={{ duration: 0.2 }}>
+      <header className="memory-detail-header">
+        <div><span className="eyebrow">A moment, kept close</span><span className="memory-detail-saved">Saved {savedDateLabel(memory.createdAt)}</span></div>
+        <button aria-label="Close memory details" className="memory-close-button" onClick={onClose} type="button"><X size={18} /></button>
+      </header>
+      <div className="memory-detail-content">
+        <div className="memory-detail-copy">
+          <h2 className="serif" id="memory-detail-title">{memory.title}</h2>
+          <div className="memory-detail-meta">
+            <span><CalendarDays size={15} /> {prettyDate(memory.memoryDate)}{memory.memoryTime ? " · " + prettyTime(memory.memoryTime) : ""}</span>
+            {memory.location && <span><MapPin size={15} /> {memory.location}</span>}
+            {memory.mood && <span className="memory-mood"><Heart size={14} /> {memoryMoodLabels[memory.mood]}</span>}
+          </div>
+          {memory.description && <p className="memory-detail-description">{memory.description}</p>}
+          {!!memory.tags?.length && <div className="memory-tags">{memory.tags.map((tag) => <span key={tag}>#{tag}</span>)}</div>}
+          <p className="memory-detail-date-note">This happened on {prettyDate(memory.memoryDate)}. It was added to Solace on {savedDateLabel(memory.createdAt)}.</p>
+        </div>
+        {photos.length > 0 ? <section className="memory-detail-gallery" aria-label="Memory photos">
+          <div className="memory-detail-gallery-heading"><h3 className="serif">The little things in the frame</h3><span>{photos.length} {photos.length === 1 ? "photo" : "photos"}</span></div>
+          <div className="memory-detail-photo-grid">{photos.map((photo, index) => <button aria-label={"Open photo " + (index + 1) + " of " + photos.length}
+            className="memory-detail-photo" key={photo.publicId} onClick={() => setLightboxIndex(index)} type="button">
+            <Image alt={memory.title + ", photo " + (index + 1)} className="memory-detail-image" fill sizes="(max-width: 680px) 45vw, 280px" src={memoryPhotoUrl(memory.id, photo.publicId)} unoptimized />
+            <span><Maximize2 size={14} /> View</span>
+          </button>)}</div>
+        </section> : <div className="memory-detail-no-photos"><ImagePlus size={19} /><span>No photos attached to this moment yet.</span></div>}
+      </div>
+      <footer className="memory-detail-actions">
+        <button className="button-secondary memory-detail-delete" onClick={onDelete} type="button"><Trash2 size={15} /> Delete memory</button>
+        <div><button className="button-secondary" onClick={onClose} type="button">Close</button><button className="button-primary" onClick={onEdit} type="button"><PenLine size={15} /> Edit memory</button></div>
+      </footer>
+    </motion.section>
+    <AnimatePresence>
+      {lightboxIndex !== null && photos[lightboxIndex] && <motion.div aria-label="Photo viewer" aria-modal="true" className="memory-lightbox"
+        initial={reduceMotion ? false : { opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} role="dialog" transition={{ duration: 0.18 }}
+        onClick={(event) => { if (event.target === event.currentTarget) { setLightboxIndex(null); setZoomed(false); } }}
+        onTouchStart={(event) => { touchStartX.current = event.touches[0]?.clientX ?? null; }}
+        onTouchEnd={(event) => {
+          if (touchStartX.current === null) return;
+          const touch = event.changedTouches[0];
+          const difference = touch ? touch.clientX - touchStartX.current : 0;
+          if (Math.abs(difference) > 55) showAdjacentPhoto(difference < 0 ? 1 : -1);
+          touchStartX.current = null;
+        }}>
+        <button aria-label="Close photo viewer" className="memory-lightbox-close" onClick={() => { setLightboxIndex(null); setZoomed(false); }} type="button"><X size={21} /></button>
+        {photos.length > 1 && <button aria-label="Previous photo" className="memory-lightbox-nav previous" onClick={() => showAdjacentPhoto(-1)} type="button"><ArrowLeft size={21} /></button>}
+        <button aria-label={zoomed ? "Zoom out" : "Zoom in"} className="memory-lightbox-image-wrap" onClick={() => setZoomed((current) => !current)} type="button">
+          <Image alt={memory.title + ", photo " + (lightboxIndex + 1)} className={"memory-lightbox-image" + (zoomed ? " is-zoomed" : "")} fill sizes="100vw" src={memoryPhotoUrl(memory.id, photos[lightboxIndex].publicId)} unoptimized />
+        </button>
+        {photos.length > 1 && <button aria-label="Next photo" className="memory-lightbox-nav next" onClick={() => showAdjacentPhoto(1)} type="button"><ArrowRight size={21} /></button>}
+        <span className="memory-lightbox-count">{lightboxIndex + 1} / {photos.length} <span>· {zoomed ? "tap to zoom out" : "tap to zoom"}</span></span>
+      </motion.div>}
+    </AnimatePresence>
+  </motion.div>;
 }

@@ -12,6 +12,7 @@ import {
 } from "@/lib/cloudinary";
 import { getAdminAuth, getAdminDb } from "@/lib/firebase/admin";
 import { SESSION_COOKIE_NAME } from "@/lib/auth/session";
+import { MAX_MEMORY_PHOTOS } from "@/lib/memories/constants";
 import type { MemoryPhoto } from "@/types/memory";
 
 export const runtime = "nodejs";
@@ -21,6 +22,10 @@ const photoActionSchema = z.object({
   publicId: z.string().min(1).max(300),
 });
 const photoQuerySchema = photoActionSchema;
+const photoOrderSchema = z.object({
+  memoryId: z.string().min(1).max(128).refine((value) => !value.includes("/")),
+  publicIds: z.array(z.string().min(1).max(300)).max(MAX_MEMORY_PHOTOS),
+});
 const photoContentTypes = { jpg: "image/jpeg", png: "image/png", webp: "image/webp" } as const;
 
 function isSameOrigin(request: NextRequest) {
@@ -100,7 +105,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "This memory could not be found." }, { status: 404 });
     }
     const currentPhotos = Array.isArray(memorySnapshot.data()?.photos) ? memorySnapshot.data()?.photos as unknown[] : [];
-    if (currentPhotos.length >= 5) return NextResponse.json({ error: "A memory can hold up to five photos." }, { status: 409 });
+    if (currentPhotos.length >= MAX_MEMORY_PHOTOS) {
+      return NextResponse.json({ error: `A memory can hold up to ${MAX_MEMORY_PHOTOS} photos.` }, { status: 409 });
+    }
 
     const photo = await uploadMemoryPhoto(file, uid, memoryId);
     try {
@@ -108,7 +115,7 @@ export async function POST(request: NextRequest) {
         const current = await transaction.get(memoryRef);
         if (!current.exists || current.data()?.ownerId !== uid) throw new Error("MEMORY_NOT_FOUND");
         const photos = Array.isArray(current.data()?.photos) ? current.data()?.photos as unknown[] : [];
-        if (photos.length >= 5) throw new Error("MEMORY_FULL");
+        if (photos.length >= MAX_MEMORY_PHOTOS) throw new Error("MEMORY_FULL");
         transaction.update(memoryRef, { photos: [...photos, photo], updatedAt: FieldValue.serverTimestamp() });
       });
     } catch (error) {
@@ -119,10 +126,57 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ photo, url: `/api/memories/photos?${query.toString()}` });
   } catch (error) {
     if (error instanceof Error && error.message === "MEMORY_FULL") {
-      return NextResponse.json({ error: "A memory can hold up to five photos." }, { status: 409 });
+      return NextResponse.json({ error: `A memory can hold up to ${MAX_MEMORY_PHOTOS} photos.` }, { status: 409 });
     }
     if (error instanceof Error && error.message === "MEMORY_NOT_FOUND") {
       return NextResponse.json({ error: "This memory could not be found." }, { status: 404 });
+    }
+    return photoActionError(error);
+  }
+}
+
+export async function PATCH(request: NextRequest) {
+  if (!isSameOrigin(request)) return NextResponse.json({ error: "Request origin could not be verified." }, { status: 403 });
+  const uid = await getVerifiedUid(request);
+  if (!uid) return NextResponse.json({ error: "Sign in again before arranging these photos." }, { status: 401 });
+  const body = await request.json().catch(() => null);
+  const parsed = photoOrderSchema.safeParse(body);
+  if (!parsed.success || new Set(parsed.data?.publicIds ?? []).size !== parsed.data?.publicIds.length) {
+    return NextResponse.json({ error: "The photo order could not be verified." }, { status: 400 });
+  }
+
+  try {
+    const db = getAdminDb();
+    const memoryRef = db.collection("memories").doc(parsed.data.memoryId);
+    await db.runTransaction(async (transaction) => {
+      const snapshot = await transaction.get(memoryRef);
+      if (!snapshot.exists || snapshot.data()?.ownerId !== uid) throw new Error("MEMORY_NOT_FOUND");
+      const photos = Array.isArray(snapshot.data()?.photos)
+        ? (snapshot.data()?.photos as unknown[]).filter(isMemoryPhoto)
+        : [];
+      if (photos.length !== parsed.data.publicIds.length) throw new Error("PHOTO_ORDER_INVALID");
+      const photosById = new Map(photos.map((photo) => [photo.publicId, photo]));
+      if (parsed.data.publicIds.some((publicId) => !photosById.has(publicId)
+        || !isOwnedMemoryPhoto(publicId, uid, parsed.data.memoryId))) {
+        throw new Error("PHOTO_ORDER_INVALID");
+      }
+      const orderedPhotos = parsed.data.publicIds.flatMap((publicId) => {
+        const photo = photosById.get(publicId);
+        return photo ? [photo] : [];
+      });
+      if (orderedPhotos.length !== photos.length) throw new Error("PHOTO_ORDER_INVALID");
+      transaction.update(memoryRef, {
+        photos: orderedPhotos,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+    });
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    if (error instanceof Error && error.message === "MEMORY_NOT_FOUND") {
+      return NextResponse.json({ error: "This memory could not be found." }, { status: 404 });
+    }
+    if (error instanceof Error && error.message === "PHOTO_ORDER_INVALID") {
+      return NextResponse.json({ error: "One of these photos changed. Refresh and arrange them again." }, { status: 409 });
     }
     return photoActionError(error);
   }
@@ -147,6 +201,9 @@ export async function DELETE(request: NextRequest) {
       ? memorySnapshot.data()?.photos.filter(isMemoryPhoto) as MemoryPhoto[]
       : [];
     const photo = photos.find((item) => item.publicId === parsed.data.publicId);
+    if (!photo && isOwnedMemoryPhoto(parsed.data.publicId, uid, parsed.data.memoryId)) {
+      return NextResponse.json({ ok: true, alreadyRemoved: true, photoCleanupPending: false });
+    }
     if (!photo || !isOwnedMemoryPhoto(photo.publicId, uid, parsed.data.memoryId)) {
       return NextResponse.json({ error: "This photo could not be verified." }, { status: 404 });
     }
@@ -170,7 +227,7 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: "This memory could not be found." }, { status: 404 });
     }
     if (error instanceof Error && error.message === "PHOTO_NOT_FOUND") {
-      return NextResponse.json({ error: "This photo is no longer attached to the memory." }, { status: 404 });
+      return NextResponse.json({ ok: true, alreadyRemoved: true, photoCleanupPending: false });
     }
     if (error instanceof Error && error.message.startsWith("Cloudinary")) {
       console.error("Solace could not remove a memory photo asset:", error.message);

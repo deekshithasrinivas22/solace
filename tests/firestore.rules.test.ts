@@ -178,11 +178,18 @@ describe("Firestore private memory rules", () => {
 
     await assertSucceeds(setDoc(memory, memoryData("ari")));
     await assertSucceeds(updateDoc(memory, { photos: [photo], updatedAt: serverTimestamp() }));
+    await assertSucceeds(updateDoc(memory, {
+      memoryTime: "18:45",
+      mood: "anxious",
+      updatedAt: serverTimestamp(),
+    }));
     await assertFails(updateDoc(memory, {
       photos: [{ ...photo, publicId: "solace/sam/memories/ari-memory/photo_1" }],
       updatedAt: serverTimestamp(),
     }));
-    await assertFails(updateDoc(memory, { photos: Array(6).fill(photo), updatedAt: serverTimestamp() }));
+    await assertSucceeds(updateDoc(memory, { photos: Array(12).fill(photo), updatedAt: serverTimestamp() }));
+    await assertFails(updateDoc(memory, { photos: Array(13).fill(photo), updatedAt: serverTimestamp() }));
+    await assertFails(updateDoc(memory, { memoryTime: "29:90", updatedAt: serverTimestamp() }));
   });
 });
 

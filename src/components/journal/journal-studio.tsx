@@ -18,7 +18,8 @@ import type { JournalEntry, JournalEntryInput, JournalPhoto } from "@/types/jour
 
 const moodSymbols: Record<MemoryMood, string> = {
   joyful: "☀", grateful: "✿", nostalgic: "⌂", peaceful: "☾",
-  excited: "✦", tender: "♡", bittersweet: "☁",
+  excited: "✦", loved: "♡", tender: "♡", bittersweet: "☁",
+  sad: "☂", anxious: "〰", proud: "✧",
 };
 const writingPrompts = [
   "What felt like a small kindness today?",

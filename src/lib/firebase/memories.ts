@@ -10,6 +10,7 @@ import {
   orderBy,
   query,
   serverTimestamp,
+  setDoc,
   startAfter,
   updateDoc,
   where,
@@ -76,12 +77,13 @@ export function subscribeToMemories(
   );
 }
 
-export async function saveMemory(ownerId: string, input: MemoryInput, memoryId?: string) {
+export async function saveMemory(ownerId: string, input: MemoryInput, memoryId?: string, createIfMissing = false) {
   const values = {
     ownerId,
     title: input.title,
     description: input.description,
     memoryDate: input.memoryDate,
+    memoryTime: input.memoryTime ?? "",
     location: input.location,
     mood: input.mood,
     tags: input.tags,
@@ -89,14 +91,20 @@ export async function saveMemory(ownerId: string, input: MemoryInput, memoryId?:
   };
 
   if (memoryId) {
-    await updateDoc(doc(getFirebaseDb(), "memories", memoryId), values);
-    return;
+    const reference = doc(getFirebaseDb(), "memories", memoryId);
+    if (createIfMissing) {
+      await setDoc(reference, { ...values, createdAt: serverTimestamp() });
+    } else {
+      await updateDoc(reference, values);
+    }
+    return memoryId;
   }
 
-  await addDoc(memoriesCollection(), {
+  const memory = await addDoc(memoriesCollection(), {
     ...values,
     createdAt: serverTimestamp(),
   });
+  return memory.id;
 }
 
 export async function removeMemory(memoryId: string, idToken: string) {

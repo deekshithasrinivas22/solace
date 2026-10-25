@@ -1,11 +1,15 @@
 export const memoryMoodValues = [
   "joyful",
+  "excited",
+  "peaceful",
+  "loved",
   "grateful",
   "nostalgic",
-  "peaceful",
-  "excited",
   "tender",
   "bittersweet",
+  "sad",
+  "anxious",
+  "proud",
 ] as const;
 
 export type MemoryMood = (typeof memoryMoodValues)[number];
@@ -20,13 +24,17 @@ export type MemoryPhoto = {
 };
 
 export const memoryMoodLabels: Record<MemoryMood, string> = {
-  joyful: "Joyful",
+  joyful: "Happy",
+  excited: "Excited",
+  peaceful: "Peaceful",
+  loved: "Loved",
   grateful: "Grateful",
   nostalgic: "Nostalgic",
-  peaceful: "Peaceful",
-  excited: "Excited",
   tender: "Tender",
   bittersweet: "Bittersweet",
+  sad: "Sad",
+  anxious: "Anxious",
+  proud: "Proud",
 };
 
 export type Memory = {
@@ -35,6 +43,7 @@ export type Memory = {
   title: string;
   description: string;
   memoryDate: string;
+  memoryTime?: string;
   location: string;
   mood: MemoryMood | "";
   tags: string[];

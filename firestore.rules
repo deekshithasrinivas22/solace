@@ -80,12 +80,19 @@ service cloud.firestore {
 
     function validMemoryPhotos(photos, userId, memoryId) {
       return photos is list
-        && photos.size() <= 5
+        && photos.size() <= 12
         && (photos.size() == 0 || validMemoryPhoto(photos[0], userId, memoryId))
         && (photos.size() < 2 || validMemoryPhoto(photos[1], userId, memoryId))
         && (photos.size() < 3 || validMemoryPhoto(photos[2], userId, memoryId))
         && (photos.size() < 4 || validMemoryPhoto(photos[3], userId, memoryId))
-        && (photos.size() < 5 || validMemoryPhoto(photos[4], userId, memoryId));
+        && (photos.size() < 5 || validMemoryPhoto(photos[4], userId, memoryId))
+        && (photos.size() < 6 || validMemoryPhoto(photos[5], userId, memoryId))
+        && (photos.size() < 7 || validMemoryPhoto(photos[6], userId, memoryId))
+        && (photos.size() < 8 || validMemoryPhoto(photos[7], userId, memoryId))
+        && (photos.size() < 9 || validMemoryPhoto(photos[8], userId, memoryId))
+        && (photos.size() < 10 || validMemoryPhoto(photos[9], userId, memoryId))
+        && (photos.size() < 11 || validMemoryPhoto(photos[10], userId, memoryId))
+        && (photos.size() < 12 || validMemoryPhoto(photos[11], userId, memoryId));
     }
 
     function validJournalPhoto(photo, userId, entryId) {
@@ -128,7 +135,7 @@ service cloud.firestore {
           'ownerId', 'title', 'description', 'memoryDate', 'location', 'mood', 'tags', 'createdAt', 'updatedAt'
         ])
         && request.resource.data.keys().hasOnly([
-          'ownerId', 'title', 'description', 'memoryDate', 'location', 'mood', 'tags', 'photos', 'createdAt', 'updatedAt'
+          'ownerId', 'title', 'description', 'memoryDate', 'memoryTime', 'location', 'mood', 'tags', 'photos', 'createdAt', 'updatedAt'
         ])
         && request.resource.data.ownerId == userId
         && request.resource.data.title is string
@@ -137,9 +144,13 @@ service cloud.firestore {
         && request.resource.data.description.size() <= 5000
         && request.resource.data.memoryDate is string
         && request.resource.data.memoryDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && (!request.resource.data.keys().hasAny(['memoryTime'])
+          || (request.resource.data.memoryTime is string
+            && (request.resource.data.memoryTime == ''
+              || request.resource.data.memoryTime.matches('^([01][0-9]|2[0-3]):[0-5][0-9]$'))))
         && request.resource.data.location is string
         && request.resource.data.location.size() <= 120
-        && request.resource.data.mood in ['', 'joyful', 'grateful', 'nostalgic', 'peaceful', 'excited', 'tender', 'bittersweet']
+        && request.resource.data.mood in ['', 'joyful', 'grateful', 'nostalgic', 'peaceful', 'excited', 'loved', 'tender', 'bittersweet', 'sad', 'anxious', 'proud']
         && request.resource.data.tags is list
         && request.resource.data.tags.size() <= 12
         && (!request.resource.data.keys().hasAny(['photos'])
@@ -318,7 +329,7 @@ service cloud.firestore {
             && request.resource.data.checklistItems.size() > 0))
         && request.resource.data.entryDate is string
         && request.resource.data.entryDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
-        && request.resource.data.mood in ['', 'joyful', 'grateful', 'nostalgic', 'peaceful', 'excited', 'tender', 'bittersweet']
+        && request.resource.data.mood in ['', 'joyful', 'grateful', 'nostalgic', 'peaceful', 'excited', 'loved', 'tender', 'bittersweet', 'sad', 'anxious', 'proud']
         && validStationeryTexture(request.resource.data.textureId)
         && validTapeStyle(request.resource.data.tapeId)
         && (!request.resource.data.keys().hasAny(['decorationIds'])

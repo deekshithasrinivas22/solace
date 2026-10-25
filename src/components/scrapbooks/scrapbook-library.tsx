@@ -131,7 +131,7 @@ export function ScrapbookLibrary() {
           {books.map((book, index) => (
             <motion.article
               animate={{ opacity: 1, y: 0, rotate: 0 }}
-              className="scrapbook-shelf-card"
+              className={"scrapbook-shelf-card scrapbook-shelf-card-" + (index === 0 ? "featured" : index % 3 === 1 ? "tall" : "classic")}
               initial={reduceMotion ? false : { opacity: 0, y: 14, rotate: index % 2 ? 0.5 : -0.5 }}
               key={book.id}
               transition={{ duration: 0.38, delay: reduceMotion ? 0 : Math.min(index * 0.06, 0.3) }}
@@ -146,6 +146,7 @@ export function ScrapbookLibrary() {
                     <strong className="serif scrapbook-cover-title">{book.title}</strong>
                     <span className="scrapbook-cover-label">{scrapbookCoverLabels[book.cover]}</span>
                   </div>
+                  <span aria-hidden="true" className="scrapbook-cover-photo-back" />
                   <Image
                     alt=""
                     aria-hidden="true"

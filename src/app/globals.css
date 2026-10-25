@@ -2369,3 +2369,92 @@ body { background: var(--theme-page-bg); color: var(--theme-ink); }
 @media (prefers-reduced-motion: reduce) {
   .journal-tool-choice { transition-duration: 0.01ms !important; }
 }
+
+
+/* Pinterest-inspired scrapbook shelf with selected cover art as the real visual anchor. */
+.scrapbook-grid {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
+  align-items: start;
+  gap: 1.4rem;
+}
+.scrapbook-shelf-card-featured { grid-column: span 2; }
+.scrapbook-shelf-card-featured .scrapbook-cover-art {
+  display: block;
+  min-height: 390px;
+  padding: 0;
+  text-align: left;
+}
+.scrapbook-shelf-card-featured .scrapbook-cover-copy {
+  position: absolute;
+  top: 50%;
+  left: 1.6rem;
+  width: 43%;
+  justify-items: start;
+  padding: 0;
+  text-align: left;
+  transform: translateY(-50%);
+}
+.scrapbook-shelf-card-featured .scrapbook-cover-title {
+  width: 100%;
+  max-width: 100%;
+  margin: 0.75rem 0 0.6rem;
+  font-size: clamp(1.7rem, 2.5vw, 2.55rem);
+  text-align: left;
+}
+.scrapbook-shelf-card-featured .scrapbook-cover-label { font-size: 0.76rem; }
+.scrapbook-shelf-card-featured .scrapbook-cover-photo-back {
+  right: 7%;
+  bottom: 6%;
+  width: 43%;
+  height: 78%;
+  transform: rotate(8deg);
+}
+.scrapbook-shelf-card-featured .scrapbook-cover-photo {
+  right: 6%;
+  bottom: 5%;
+  width: 49%;
+  height: 84%;
+  transform: rotate(3deg);
+}
+.scrapbook-shelf-card-tall .scrapbook-cover-art { min-height: 380px; }
+.scrapbook-shelf-card-classic .scrapbook-cover-art { min-height: 335px; }
+.scrapbook-cover-copy { position: relative; z-index: 3; transform: translateY(-1.2rem); }
+.scrapbook-cover-photo-back {
+  position: absolute;
+  z-index: 1;
+  right: 8%;
+  bottom: 4%;
+  width: 66%;
+  height: 64%;
+  border: 0.48rem solid #fffdf8;
+  border-bottom-width: 1.65rem;
+  border-radius: 0.12rem;
+  background: rgba(255, 253, 248, 0.92);
+  box-shadow: 0 13px 25px rgba(49, 38, 54, 0.2);
+  transform: rotate(8deg);
+}
+.scrapbook-cover-photo {
+  z-index: 2;
+  right: 3%;
+  bottom: 1%;
+  width: 70%;
+  height: 68%;
+  transform: rotate(3deg);
+}
+.scrapbook-shelf-card:nth-child(3n + 2) .scrapbook-cover-photo { transform: rotate(-5deg); }
+.scrapbook-shelf-card:nth-child(3n + 3) .scrapbook-cover-photo { transform: rotate(6deg); }
+.scrapbook-card-link:hover .scrapbook-cover-photo { transform: translateY(-5px) rotate(1deg); }
+.scrapbook-card-link:hover .scrapbook-cover-photo-back { transform: translateY(-2px) rotate(10deg); }
+@media (max-width: 850px) {
+  .scrapbook-shelf-card-featured { grid-column: span 1; }
+  .scrapbook-shelf-card-featured .scrapbook-cover-art { min-height: 370px; }
+}
+@media (max-width: 680px) {
+  .scrapbook-grid { grid-template-columns: minmax(0, 1fr); gap: 1rem; }
+  .scrapbook-shelf-card-featured .scrapbook-cover-art { min-height: 330px; }
+  .scrapbook-shelf-card-featured .scrapbook-cover-copy { left: 1.05rem; width: 45%; }
+  .scrapbook-shelf-card-featured .scrapbook-cover-title { font-size: 1.6rem; }
+  .scrapbook-shelf-card-featured .scrapbook-cover-photo { right: 3%; width: 53%; }
+  .scrapbook-shelf-card-featured .scrapbook-cover-photo-back { right: 5%; width: 47%; }
+  .scrapbook-shelf-card-tall .scrapbook-cover-art, .scrapbook-shelf-card-classic .scrapbook-cover-art { min-height: 320px; }
+}

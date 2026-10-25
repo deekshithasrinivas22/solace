@@ -67,12 +67,18 @@ export function isOwnedJournalPhoto(publicId: string, ownerId: string, entryId: 
 export function isScrapbookPhoto(value: unknown): value is ScrapbookPhoto {
   if (!value || typeof value !== "object") return false;
   const photo = value as Partial<ScrapbookPhoto>;
+  const position = photo.position;
   return typeof photo.publicId === "string"
     && Number.isInteger(photo.version) && Number(photo.version) > 0
     && supportedFormats.includes(photo.format as (typeof supportedFormats)[number])
     && Number.isInteger(photo.width) && Number(photo.width) > 0 && Number(photo.width) <= 12_000
     && Number.isInteger(photo.height) && Number(photo.height) > 0 && Number(photo.height) <= 12_000
-    && Number.isInteger(photo.bytes) && Number(photo.bytes) > 0 && Number(photo.bytes) <= MAX_PHOTO_BYTES;
+    && Number.isInteger(photo.bytes) && Number(photo.bytes) > 0 && Number(photo.bytes) <= MAX_PHOTO_BYTES
+    && (position === undefined || (
+      typeof position === "object" && position !== null
+      && Number.isFinite(position.x) && position.x >= 0 && position.x <= 100
+      && Number.isFinite(position.y) && position.y >= 0 && position.y <= 100
+    ));
 }
 
 export function isMemoryPhoto(value: unknown): value is MemoryPhoto {

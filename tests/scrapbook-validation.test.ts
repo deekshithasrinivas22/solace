@@ -31,6 +31,8 @@ describe("scrapbook input validation", () => {
     expect(scrapbookPageInputSchema.safeParse({ ...validPage, paper: "blue" }).success).toBe(false);
     expect(scrapbookPageInputSchema.safeParse({ ...validPage, vibe: "not-a-vibe" }).success).toBe(false);
     expect(scrapbookPageInputSchema.parse(validPage).vibe).toBe("core-memory");
+    expect(scrapbookPageInputSchema.parse({ ...validPage, layout: "filmstrip" }).layoutStyle).toBe("filmstrip-35mm");
+    expect(scrapbookPageInputSchema.safeParse({ ...validPage, layout: "postcard", layoutStyle: "polaroid-classic" }).success).toBe(false);
   });
 
   it("limits scrapbook notes, page captions, and memory references", () => {
@@ -38,6 +40,21 @@ describe("scrapbook input validation", () => {
     expect(scrapbookPageInputSchema.safeParse({ ...validPage, caption: "x".repeat(1601) }).success).toBe(false);
     expect(scrapbookPageInputSchema.safeParse({ ...validPage, memoryId: "x".repeat(129) }).success).toBe(false);
     expect(scrapbookPageInputSchema.safeParse({ ...validPage, memoryId: "memory/other" }).success).toBe(false);
+  });
+
+  it("accepts more than three photos and stores freeform positions", () => {
+    const photos = Array.from({ length: 8 }, (_, index) => ({
+      publicId: `solace/owner/scrapbooks/book/page/photo${index}`,
+      version: 1,
+      format: "jpg" as const,
+      width: 1200,
+      height: 900,
+      bytes: 120_000,
+      position: { x: 10 + index * 8, y: 20 + index * 5 },
+    }));
+    const parsed = scrapbookPageInputSchema.parse({ ...validPage, photos });
+    expect(parsed.photos).toHaveLength(8);
+    expect(parsed.photos[7]?.position).toEqual({ x: 66, y: 55 });
   });
 
   it("accepts a supported song link and rejects unsupported hosts", () => {

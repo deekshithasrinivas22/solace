@@ -12,6 +12,7 @@ import {
   validImageFile,
 } from "@/lib/cloudinary";
 import { SESSION_COOKIE_NAME, SESSION_DURATION_MS } from "@/lib/auth/session";
+import { defaultScrapbookPhotoPosition, scrapbookLayoutValues } from "@/types/scrapbook";
 
 export const runtime = "nodejs";
 
@@ -99,10 +100,8 @@ async function uploadScrapbookPhotoRequest(request: NextRequest) {
   try {
     const ownedPage = await getOwnedPage(uid, scrapbookId, pageId);
     if (!ownedPage) return NextResponse.json({ error: "This scrapbook page could not be found." }, { status: 404 });
-    const currentPhotos = Array.isArray(ownedPage.pageData.photos) ? ownedPage.pageData.photos : [];
-    if (currentPhotos.length >= 3) return NextResponse.json({ error: "This page already has three photos." }, { status: 409 });
-
     const photo = await uploadScrapbookPhoto(file, uid, scrapbookId, pageId);
+    let placedPhoto = photo;
     try {
       await ownedPage.db.runTransaction(async (transaction) => {
         const bookSnapshot = await transaction.get(ownedPage.bookRef);
@@ -111,19 +110,20 @@ async function uploadScrapbookPhotoRequest(request: NextRequest) {
           throw new Error("PAGE_NOT_FOUND");
         }
         const photos = Array.isArray(pageSnapshot.data()?.photos) ? pageSnapshot.data()?.photos as unknown[] : [];
-        if (photos.length >= 3) throw new Error("PAGE_FULL");
-        transaction.update(ownedPage.pageRef, { photos: [...photos, photo], updatedAt: FieldValue.serverTimestamp() });
+        const rawLayout = pageSnapshot.data()?.layout;
+        const layout = scrapbookLayoutValues.includes(rawLayout as (typeof scrapbookLayoutValues)[number])
+          ? rawLayout as (typeof scrapbookLayoutValues)[number]
+          : "polaroid";
+        placedPhoto = { ...photo, position: defaultScrapbookPhotoPosition(layout, photos.length) };
+        transaction.update(ownedPage.pageRef, { photos: [...photos, placedPhoto], updatedAt: FieldValue.serverTimestamp() });
         transaction.update(ownedPage.bookRef, { updatedAt: FieldValue.serverTimestamp() });
       });
     } catch (error) {
       await destroyScrapbookPhoto(photo.publicId).catch(() => undefined);
       throw error;
     }
-    return NextResponse.json({ photo, url: signedScrapbookPhotoUrl(photo) });
+    return NextResponse.json({ photo: placedPhoto, url: signedScrapbookPhotoUrl(placedPhoto) });
   } catch (error) {
-    if (error instanceof Error && error.message === "PAGE_FULL") {
-      return NextResponse.json({ error: "This page already has three photos." }, { status: 409 });
-    }
     if (error instanceof Error && error.message === "PAGE_NOT_FOUND") {
       return NextResponse.json({ error: "This scrapbook page could not be found." }, { status: 404 });
     }
